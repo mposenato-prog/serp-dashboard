@@ -42,16 +42,16 @@ interface Run {
   with_domain_in_ai: number;
 }
 
-function StatCard({ icon, label, value, sub, color }: {
-  icon: React.ReactNode; label: string; value: string | number; sub?: string; color: string;
+function StatCard({ icon, label, value, sub, gradient }: {
+  icon: React.ReactNode; label: string; value: string | number; sub?: string; gradient: string;
 }) {
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
-      <div className={`p-3 rounded-xl ${color}`}>{icon}</div>
+    <div className={`rounded-2xl p-5 flex items-center gap-4 shadow-sm ${gradient}`}>
+      <div className="p-3 rounded-xl bg-white/20 backdrop-blur-sm">{icon}</div>
       <div>
-        <p className="text-sm text-gray-500">{label}</p>
-        <p className="text-2xl font-bold text-gray-900 truncate max-w-[140px]" title={String(value)}>{value}</p>
-        {sub && <p className="text-xs text-gray-400">{sub}</p>}
+        <p className="text-xs font-medium uppercase tracking-wide opacity-75 text-white">{label}</p>
+        <p className="text-2xl font-bold text-white truncate max-w-[140px]" title={String(value)}>{value}</p>
+        {sub && <p className="text-xs text-white/70 mt-0.5">{sub}</p>}
       </div>
     </div>
   );
@@ -59,7 +59,7 @@ function StatCard({ icon, label, value, sub, color }: {
 
 function Badge({ active, label }: { active: boolean; label: string }) {
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-400"}`}>
+    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${active ? "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200" : "bg-gray-100 text-gray-400"}`}>
       {active ? <CheckCircle2 size={11} /> : <XCircle size={11} />}
       {label}
     </span>
@@ -174,7 +174,7 @@ function NewProjectModal({ onClose, onSave }: { onClose: () => void; onSave: (p:
         </div>
         <div className="flex gap-2 justify-end pt-2">
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Annulla</button>
-          <button onClick={handleSave} disabled={!name || !domain || saving} className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-medium rounded-xl px-5 py-2 flex items-center gap-2">
+          <button onClick={handleSave} disabled={!name || !domain || saving} className="bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl px-5 py-2 flex items-center gap-2 shadow-sm shadow-indigo-200">
             {saving && <Loader2 size={13} className="animate-spin" />} Crea progetto
           </button>
         </div>
@@ -577,15 +577,18 @@ function SearchView() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
-      <h2 className="text-xl font-bold text-gray-900">Ricerca</h2>
+      <div>
+        <h2 className="text-2xl font-bold text-gray-900">Ricerca</h2>
+        <p className="text-sm text-gray-500 mt-1">Analizza query su Google: intento, AI Overview e fonti citate.</p>
+      </div>
 
       {/* Input */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-        <div className="flex gap-3 items-start">
-          <div className="flex-1 space-y-1">
-            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide block">Query / Prompt (una per riga, max 50)</label>
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm shadow-indigo-50 p-6">
+        <div className="flex gap-4 items-start">
+          <div className="flex-1 space-y-1.5">
+            <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider block">Query / Prompt <span className="text-gray-300 font-normal normal-case">— una per riga, max 50</span></label>
             <textarea
-              className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-indigo-400 font-mono resize-none"
+              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 font-mono resize-none transition-all"
               rows={5}
               placeholder={"cos'è il SEO\ncome fare link building\nmigliore agenzia SEO Italia\n..."}
               value={queriesRaw}
@@ -593,15 +596,15 @@ function SearchView() {
             />
             <p className="text-xs text-gray-400">{queries.length}/50 query</p>
           </div>
-          <div className="flex flex-col gap-2 pt-5">
+          <div className="flex flex-col gap-2.5 pt-6 min-w-[160px]">
             <input
-              className="border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-400"
+              className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all"
               placeholder="Dominio (opzionale)"
               value={domain}
               onChange={e => setDomain(e.target.value)}
             />
             <select
-              className="border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-400"
+              className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-white transition-all"
               value={locationIdx}
               onChange={e => setLocationIdx(Number(e.target.value))}
             >
@@ -610,13 +613,13 @@ function SearchView() {
             <button
               onClick={handleSearch}
               disabled={loading || !queries.length}
-              className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-medium rounded-xl px-5 py-2.5 flex items-center justify-center gap-2"
+              className="bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl px-5 py-2.5 flex items-center justify-center gap-2 shadow-md shadow-indigo-200 transition-all"
             >
               {loading ? <><Loader2 size={14} className="animate-spin" />{progress}%</> : <><Search size={14} />Analizza</>}
             </button>
           </div>
         </div>
-        {error && <p className="text-xs text-red-500 mt-2">{error}</p>}
+        {error && <p className="text-xs text-red-500 mt-3 flex items-center gap-1"><AlertCircle size={12} />{error}</p>}
       </div>
 
       {results.length > 0 && (
@@ -624,31 +627,31 @@ function SearchView() {
           {/* Results table */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-gray-900">Risultati — {totalQueries} query</h3>
+              <h3 className="text-sm font-semibold text-gray-900">Risultati <span className="text-gray-400 font-normal">— {totalQueries} query</span></h3>
               <button
                 onClick={() => { setShowStats(s => !s); setSelectedDomain(null); }}
-                className={`flex items-center gap-1.5 text-sm font-medium px-4 py-1.5 rounded-xl border transition-colors ${showStats ? "bg-indigo-600 text-white border-indigo-600" : "border-gray-200 text-gray-600 hover:border-indigo-400 hover:text-indigo-600"}`}
+                className={`flex items-center gap-1.5 text-sm font-semibold px-4 py-1.5 rounded-xl transition-all ${showStats ? "bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-200" : "border border-gray-200 text-gray-600 hover:border-indigo-400 hover:text-indigo-600"}`}
               >
                 <BarChart3 size={14} /> Statistiche
               </button>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+                <thead className="bg-gradient-to-r from-slate-50 to-gray-50 text-xs text-gray-500 uppercase tracking-wider border-b border-gray-100">
                   <tr>
-                    <th className="w-8 px-4 py-3"></th>
-                    <th className="text-left px-4 py-3">Query</th>
-                    <th className="text-center px-4 py-3">Intento</th>
-                    <th className="text-center px-4 py-3">AI Overview</th>
-                    <th className="text-center px-4 py-3">Fonti AI</th>
-                    {domain.trim() && <><th className="text-center px-4 py-3">Dominio in AI</th><th className="text-center px-4 py-3">Dominio in Organico</th></>}
+                    <th className="w-8 px-4 py-3.5"></th>
+                    <th className="text-left px-4 py-3.5 font-semibold">Query</th>
+                    <th className="text-center px-4 py-3.5 font-semibold">Intento</th>
+                    <th className="text-center px-4 py-3.5 font-semibold">AI Overview</th>
+                    <th className="text-center px-4 py-3.5 font-semibold">Fonti AI</th>
+                    {domain.trim() && <><th className="text-center px-4 py-3.5 font-semibold">Dominio in AI</th><th className="text-center px-4 py-3.5 font-semibold">Dominio in Organico</th></>}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-50">
+                <tbody>
                   {results.map((r, i) => (
                     <React.Fragment key={i}>
                       <tr
-                        className={`transition-colors ${r.hasAiOverview ? "cursor-pointer hover:bg-gray-50" : ""}`}
+                        className={`border-b border-gray-50 transition-colors ${i % 2 === 0 ? "bg-white" : "bg-slate-50/50"} ${r.hasAiOverview ? "cursor-pointer hover:bg-indigo-50/40" : ""}`}
                         onClick={() => r.hasAiOverview && setExpandedRow(expandedRow === r.keyword ? null : r.keyword)}
                       >
                         <td className="px-4 py-3 text-gray-400 text-xs">{r.hasAiOverview ? (expandedRow === r.keyword ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : null}</td>
@@ -725,10 +728,10 @@ function SearchView() {
             <div className="overflow-y-auto p-6 space-y-5">
               {/* Summary cards */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <StatCard icon={<Search size={18} className="text-indigo-600" />} label="Query analizzate" value={totalQueries} color="bg-indigo-50" />
-                <StatCard icon={<Bot size={18} className="text-violet-600" />} label="Con AI Overview" value={`${withAi} (${totalQueries ? Math.round(withAi / totalQueries * 100) : 0}%)`} color="bg-violet-50" />
-                <StatCard icon={<Sparkles size={18} className="text-amber-600" />} label="Domini unici in AI" value={domainStats.length} color="bg-amber-50" />
-                <StatCard icon={<Globe size={18} className="text-emerald-600" />} label="Intento prevalente" value={Object.entries(intentCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "—"} color="bg-emerald-50" />
+                <StatCard icon={<Search size={18} className="text-white" />} label="Query analizzate" value={totalQueries} gradient="bg-gradient-to-br from-indigo-500 to-indigo-700" />
+                <StatCard icon={<Bot size={18} className="text-white" />} label="Con AI Overview" value={`${withAi} (${totalQueries ? Math.round(withAi / totalQueries * 100) : 0}%)`} gradient="bg-gradient-to-br from-violet-500 to-violet-700" />
+                <StatCard icon={<Sparkles size={18} className="text-white" />} label="Domini unici in AI" value={domainStats.length} gradient="bg-gradient-to-br from-amber-400 to-orange-500" />
+                <StatCard icon={<Globe size={18} className="text-white" />} label="Intento prevalente" value={Object.entries(intentCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "—"} gradient="bg-gradient-to-br from-emerald-500 to-teal-600" />
               </div>
 
               {/* Intento breakdown */}
@@ -932,25 +935,27 @@ export default function Dashboard() {
   const domainPct = total ? Math.round((withDomain / total) * 100) : 0;
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <div className="min-h-screen bg-slate-50 flex flex-col">
       {/* Header */}
-      <header className="bg-white border-b border-gray-100 px-6 py-4 flex items-center gap-3">
-        <button onClick={() => { setMainTab("projects"); setView("projects"); }} className="flex items-center gap-2">
-          <div className="bg-indigo-600 p-2 rounded-xl"><BarChart3 size={20} className="text-white" /></div>
-          <h1 className="text-lg font-bold text-gray-900">AI Sight</h1>
+      <header className="bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-700 px-6 py-3.5 flex items-center gap-3 shadow-lg shadow-indigo-500/20">
+        <button onClick={() => { setMainTab("search"); }} className="flex items-center gap-2.5">
+          <div className="bg-white/15 backdrop-blur-sm p-2 rounded-xl border border-white/20">
+            <BarChart3 size={20} className="text-white" />
+          </div>
+          <h1 className="text-lg font-bold text-white tracking-tight">AI Sight</h1>
         </button>
 
         {/* Main tabs */}
-        <div className="flex gap-1 ml-4 bg-gray-100 rounded-xl p-1">
+        <div className="flex gap-1 ml-4 bg-white/10 backdrop-blur-sm rounded-xl p-1 border border-white/10">
           <button
             onClick={() => setMainTab("search")}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${mainTab === "search" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-800"}`}
+            className={`px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all ${mainTab === "search" ? "bg-white text-indigo-700 shadow-sm" : "text-white/80 hover:text-white hover:bg-white/10"}`}
           >
             <Search size={13} className="inline mr-1.5" />Ricerca
           </button>
           <button
             onClick={() => { setMainTab("projects"); setView("projects"); }}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${mainTab === "projects" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-800"}`}
+            className={`px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all ${mainTab === "projects" ? "bg-white text-indigo-700 shadow-sm" : "text-white/80 hover:text-white hover:bg-white/10"}`}
           >
             <FolderOpen size={13} className="inline mr-1.5" />Progetti
           </button>
@@ -958,20 +963,20 @@ export default function Dashboard() {
 
         {mainTab === "projects" && selectedProject && (
           <>
-            <ChevronRight size={16} className="text-gray-300" />
-            <button onClick={() => setView("project")} className="text-sm text-gray-600 hover:text-gray-900 font-medium">{selectedProject.name}</button>
+            <ChevronRight size={16} className="text-white/40" />
+            <button onClick={() => setView("project")} className="text-sm text-white/80 hover:text-white font-medium">{selectedProject.name}</button>
           </>
         )}
         {mainTab === "projects" && view === "run" && selectedRun && (
           <>
-            <ChevronRight size={16} className="text-gray-300" />
-            <span className="text-sm text-gray-500">{new Date(selectedRun.run_at).toLocaleString("it-IT")}</span>
+            <ChevronRight size={16} className="text-white/40" />
+            <span className="text-sm text-white/60">{new Date(selectedRun.run_at).toLocaleString("it-IT")}</span>
           </>
         )}
         {mainTab === "projects" && view === "run" && !selectedRun && loading && (
           <>
-            <ChevronRight size={16} className="text-gray-300" />
-            <span className="text-sm text-gray-500">Nuova analisi</span>
+            <ChevronRight size={16} className="text-white/40" />
+            <span className="text-sm text-white/60">Nuova analisi</span>
           </>
         )}
       </header>
@@ -985,7 +990,7 @@ export default function Dashboard() {
       <div className={`flex flex-1 ${mainTab === "search" ? "hidden" : ""}`}>
         {/* Sidebar */}
         {view !== "projects" && selectedProject && (
-          <aside className="w-64 bg-white border-r border-gray-100 flex flex-col shrink-0">
+          <aside className="w-64 bg-white border-r border-gray-100 flex flex-col shrink-0 shadow-sm">
             <div className="p-4 border-b border-gray-100">
               <button onClick={() => setView("projects")} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 mb-3">
                 <ChevronLeft size={13} /> Tutti i progetti
@@ -997,7 +1002,7 @@ export default function Dashboard() {
             {/* Analyze button */}
             <div className="p-3 border-b border-gray-100">
               <button onClick={handleAnalyze} disabled={loading}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-medium rounded-xl px-3 py-2 flex items-center justify-center gap-2">
+                className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl px-3 py-2 flex items-center justify-center gap-2 shadow-sm shadow-indigo-200">
                 {loading ? <><Loader2 size={13} className="animate-spin" />{progress}%</> : <><Search size={13} /> Nuova analisi</>}
               </button>
               {error && <p className="text-xs text-red-500 mt-2">{error}</p>}
@@ -1042,8 +1047,8 @@ export default function Dashboard() {
           {view === "projects" && (
             <div className="max-w-4xl mx-auto px-4 py-8">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-gray-900">Progetti</h2>
-                <button onClick={() => setShowNewProject(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-xl px-4 py-2 flex items-center gap-2">
+                <h2 className="text-2xl font-bold text-gray-900">Progetti</h2>
+                <button onClick={() => setShowNewProject(true)} className="bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white text-sm font-semibold rounded-xl px-4 py-2 flex items-center gap-2 shadow-sm shadow-indigo-200">
                   <Plus size={15} /> Nuovo progetto
                 </button>
               </div>
@@ -1098,10 +1103,10 @@ export default function Dashboard() {
           {view === "run" && runResults.length > 0 && selectedProject && (
             <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <StatCard icon={<Search size={18} className="text-indigo-600" />} label="Keywords analizzate" value={total} color="bg-indigo-50" />
-                <StatCard icon={<Bot size={18} className="text-violet-600" />} label="Con AI Overview" value={`${withAi} (${aiPct}%)`} sub="delle keyword" color="bg-violet-50" />
-                <StatCard icon={<Globe size={18} className="text-emerald-600" />} label="Dominio in organico" value={`${withDomain} (${domainPct}%)`} sub="top 10" color="bg-emerald-50" />
-                <StatCard icon={<CheckCircle2 size={18} className="text-amber-600" />} label="Dominio in AI" value={withDomainInAi} sub="citato come fonte" color="bg-amber-50" />
+                <StatCard icon={<Search size={18} className="text-white" />} label="Keywords analizzate" value={total} gradient="bg-gradient-to-br from-indigo-500 to-indigo-700" />
+                <StatCard icon={<Bot size={18} className="text-white" />} label="Con AI Overview" value={`${withAi} (${aiPct}%)`} sub="delle keyword" gradient="bg-gradient-to-br from-violet-500 to-violet-700" />
+                <StatCard icon={<Globe size={18} className="text-white" />} label="Dominio in organico" value={`${withDomain} (${domainPct}%)`} sub="top 10" gradient="bg-gradient-to-br from-emerald-500 to-teal-600" />
+                <StatCard icon={<CheckCircle2 size={18} className="text-white" />} label="Dominio in AI" value={withDomainInAi} sub="citato come fonte" gradient="bg-gradient-to-br from-amber-400 to-orange-500" />
               </div>
               <ResultsTable results={runResults} domain={selectedProject.domain} withAi={withAi} runs={runs} />
             </div>
