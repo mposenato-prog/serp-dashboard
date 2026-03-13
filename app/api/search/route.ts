@@ -7,6 +7,9 @@ export interface SearchResult {
   hasAiOverview: boolean;
   aiSources: { title: string; url: string; domain: string }[];
   topOrganic: { title: string; url: string; domain: string; position: number }[];
+  domainInAi: boolean | null;        // null = no domain provided
+  domainInOrganic: boolean | null;
+  domainOrgaicPosition: number | null;
 }
 
 function extractDomain(url: string): string {
@@ -14,6 +17,16 @@ function extractDomain(url: string): string {
     return new URL(url).hostname.replace(/^www\./, "");
   } catch {
     return url;
+  }
+}
+
+function domainMatches(url: string, domain: string): boolean {
+  try {
+    const hostname = new URL(url).hostname.replace(/^www\./, "");
+    const clean = domain.replace(/^www\./, "").replace(/^https?:\/\//, "");
+    return hostname === clean || hostname.endsWith("." + clean);
+  } catch {
+    return false;
   }
 }
 
@@ -33,7 +46,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "SerpApi key not configured" }, { status: 500 });
   }
 
-  const { keyword, location = "it", language = "it" } = await req.json();
+  const { keyword, location = "it", language = "it", domain = "" } = await req.json();
   if (!keyword) {
     return NextResponse.json({ error: "keyword is required" }, { status: 400 });
   }
@@ -74,6 +87,18 @@ export async function POST(req: NextRequest) {
     position: r.position || 0,
   }));
 
+  // Domain tracking (optional)
+  let domainInAi: boolean | null = null;
+  let domainInOrganic: boolean | null = null;
+  let domainOrgaicPosition: number | null = null;
+
+  if (domain.trim()) {
+    domainInAi = aiSources.some(s => domainMatches(s.url, domain));
+    const orgMatch = topOrganic.find(r => domainMatches(r.url, domain));
+    domainInOrganic = !!orgMatch;
+    domainOrgaicPosition = orgMatch?.position ?? null;
+  }
+
   const result: SearchResult = {
     keyword,
     intent: intent.label,
@@ -81,6 +106,9 @@ export async function POST(req: NextRequest) {
     hasAiOverview,
     aiSources,
     topOrganic,
+    domainInAi,
+    domainInOrganic,
+    domainOrgaicPosition,
   };
 
   return NextResponse.json({ result });

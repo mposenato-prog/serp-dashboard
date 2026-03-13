@@ -493,6 +493,7 @@ function ResultsTable({ results, domain, withAi, runs }: { results: KeywordResul
 function SearchView() {
   const [queriesRaw, setQueriesRaw] = useState("");
   const [locationIdx, setLocationIdx] = useState(0);
+  const [domain, setDomain] = useState("");
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -523,6 +524,7 @@ function SearchView() {
             keyword: queries[i],
             location: LOCATION_OPTIONS[locationIdx].gl,
             language: LOCATION_OPTIONS[locationIdx].hl,
+            domain: domain.trim(),
           }),
         });
         const data = await res.json();
@@ -592,6 +594,12 @@ function SearchView() {
             <p className="text-xs text-gray-400">{queries.length}/50 query</p>
           </div>
           <div className="flex flex-col gap-2 pt-5">
+            <input
+              className="border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-400"
+              placeholder="Dominio (opzionale)"
+              value={domain}
+              onChange={e => setDomain(e.target.value)}
+            />
             <select
               className="border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-400"
               value={locationIdx}
@@ -633,6 +641,7 @@ function SearchView() {
                     <th className="text-center px-4 py-3">Intento</th>
                     <th className="text-center px-4 py-3">AI Overview</th>
                     <th className="text-center px-4 py-3">Fonti AI</th>
+                    {domain.trim() && <><th className="text-center px-4 py-3">Dominio in AI</th><th className="text-center px-4 py-3">Dominio in Organico</th></>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -655,6 +664,19 @@ function SearchView() {
                             ? <span className="font-medium text-violet-600">{r.aiSources.length} fonti</span>
                             : <span className="text-gray-300">—</span>}
                         </td>
+                        {domain.trim() && (
+                          <>
+                            <td className="px-4 py-3 text-center">
+                              {r.domainInAi === null ? <span className="text-gray-300">—</span> : <Badge active={r.domainInAi} label={r.domainInAi ? "Sì" : "No"} />}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              {r.domainInOrganic === null ? <span className="text-gray-300">—</span> :
+                                r.domainInOrganic
+                                  ? <span className="font-semibold text-emerald-600">#{r.domainOrgaicPosition}</span>
+                                  : <Badge active={false} label="No" />}
+                            </td>
+                          </>
+                        )}
                       </tr>
                       {expandedRow === r.keyword && r.aiSources.length > 0 && (
                         <tr>
@@ -685,9 +707,22 @@ function SearchView() {
             </div>
           </div>
 
-          {/* Statistics panel */}
-          {showStats && (
-            <div className="space-y-4">
+        </>
+      )}
+
+      {/* Statistics modal */}
+      {showStats && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => { setShowStats(false); setSelectedDomain(null); }}>
+          <div className="bg-gray-50 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+            {/* Modal header */}
+            <div className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between shrink-0">
+              <h2 className="font-bold text-gray-900">Statistiche</h2>
+              <button onClick={() => { setShowStats(false); setSelectedDomain(null); }} className="text-gray-400 hover:text-gray-700 p-1 rounded-lg hover:bg-gray-100">
+                <XCircle size={20} />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto p-6 space-y-5">
               {/* Summary cards */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <StatCard icon={<Search size={18} className="text-indigo-600" />} label="Query analizzate" value={totalQueries} color="bg-indigo-50" />
@@ -711,19 +746,17 @@ function SearchView() {
                 </div>
               </div>
 
-              {/* Top domains table + detail panel */}
+              {/* Top domains + detail panel */}
               <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                 <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
                   <Sparkles size={15} className="text-violet-500" />
                   <h3 className="text-sm font-semibold text-gray-900">Domini più citati in AI Overview</h3>
                   <span className="text-xs text-gray-400 ml-1">— clicca per vedere gli URL</span>
                 </div>
-                <div className="flex">
+                <div className="flex" style={{ minHeight: 320 }}>
                   {/* Domain list */}
-                  <div className="w-80 shrink-0 border-r border-gray-100 divide-y divide-gray-50">
-                    {domainStats.length === 0 && (
-                      <p className="px-5 py-6 text-sm text-gray-400 text-center">Nessuna fonte AI.</p>
-                    )}
+                  <div className="w-72 shrink-0 border-r border-gray-100 divide-y divide-gray-50 overflow-y-auto max-h-[400px]">
+                    {domainStats.length === 0 && <p className="px-5 py-6 text-sm text-gray-400 text-center">Nessuna fonte AI.</p>}
                     {domainStats.map((d, i) => {
                       const pct = withAi ? Math.round((d.queryCount / withAi) * 100) : 0;
                       return (
@@ -747,8 +780,8 @@ function SearchView() {
                     })}
                   </div>
 
-                  {/* URL detail panel */}
-                  <div className="flex-1 p-5 overflow-y-auto max-h-[500px]">
+                  {/* URL detail */}
+                  <div className="flex-1 p-5 overflow-y-auto max-h-[400px]">
                     {!selectedDomain ? (
                       <div className="flex flex-col items-center justify-center h-full text-gray-400 text-sm gap-2">
                         <Link size={28} className="opacity-20" />
@@ -783,8 +816,8 @@ function SearchView() {
                 </div>
               </div>
             </div>
-          )}
-        </>
+          </div>
+        </div>
       )}
     </div>
   );
