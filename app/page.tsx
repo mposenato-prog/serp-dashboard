@@ -1,13 +1,16 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
+import dynamic from "next/dynamic";
 import {
   BarChart3, Bot, Globe, Search, CheckCircle2, XCircle,
   AlertCircle, Download, Loader2, ChevronDown, ChevronRight,
   Link, Plus, Trash2, FolderOpen, Clock, ChevronLeft, Pencil,
-  Sparkles,
+  Sparkles, Wand2,
 } from "lucide-react";
 import type { SearchResult } from "./api/search/route";
+
+const ArticleGenerator = dynamic(() => import("./components/ArticleGenerator"), { ssr: false });
 import type { KeywordResult, AiSource } from "./api/analyze/route";
 import { TrendChart, PositionChart, AiDonut, TopSourcesChart, AiPresenceBreakdown } from "./components/Charts";
 
@@ -501,6 +504,7 @@ function SearchView() {
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [showStats, setShowStats] = useState(false);
   const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
+  const [generatingFor, setGeneratingFor] = useState<SearchResult | null>(null);
 
   const queries = queriesRaw.split("\n").map(q => q.trim()).filter(Boolean).slice(0, 50);
 
@@ -645,6 +649,7 @@ function SearchView() {
                     <th className="text-center px-4 py-3.5 font-semibold">AI Overview</th>
                     <th className="text-center px-4 py-3.5 font-semibold">Fonti AI</th>
                     {domain.trim() && <><th className="text-center px-4 py-3.5 font-semibold">Dominio in AI</th><th className="text-center px-4 py-3.5 font-semibold">Dominio in Organico</th></>}
+                    <th className="text-center px-4 py-3.5 font-semibold">Articolo</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -680,6 +685,14 @@ function SearchView() {
                             </td>
                           </>
                         )}
+                        <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
+                          <button
+                            onClick={() => setGeneratingFor(r)}
+                            className="inline-flex items-center gap-1 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm shadow-indigo-200 transition-all"
+                          >
+                            <Wand2 size={11} /> Genera
+                          </button>
+                        </td>
                       </tr>
                       {expandedRow === r.keyword && r.aiSources.length > 0 && (
                         <tr>
@@ -821,6 +834,13 @@ function SearchView() {
             </div>
           </div>
         </div>
+      )}
+
+      {generatingFor && (
+        <ArticleGenerator
+          result={generatingFor}
+          onClose={() => setGeneratingFor(null)}
+        />
       )}
     </div>
   );

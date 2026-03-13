@@ -7,7 +7,8 @@ export interface SearchResult {
   hasAiOverview: boolean;
   aiSources: { title: string; url: string; domain: string }[];
   topOrganic: { title: string; url: string; domain: string; position: number }[];
-  domainInAi: boolean | null;        // null = no domain provided
+  paaQuestions: string[];
+  domainInAi: boolean | null;
   domainInOrganic: boolean | null;
   domainOrgaicPosition: number | null;
 }
@@ -87,6 +88,10 @@ export async function POST(req: NextRequest) {
     position: r.position || 0,
   }));
 
+  // PAA
+  const rawPaa: Array<{ question?: string }> = data.related_questions || [];
+  const paaQuestions = rawPaa.slice(0, 8).map(q => q.question ?? "").filter(Boolean);
+
   // Domain tracking (optional)
   let domainInAi: boolean | null = null;
   let domainInOrganic: boolean | null = null;
@@ -106,6 +111,7 @@ export async function POST(req: NextRequest) {
     hasAiOverview,
     aiSources,
     topOrganic,
+    paaQuestions,
     domainInAi,
     domainInOrganic,
     domainOrgaicPosition,
