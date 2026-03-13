@@ -45,15 +45,22 @@ interface Run {
   with_domain_in_ai: number;
 }
 
-function StatCard({ icon, label, value, sub, gradient }: {
-  icon: React.ReactNode; label: string; value: string | number; sub?: string; gradient: string;
+function StatCard({ icon, label, value, sub, gradient, delta }: {
+  icon: React.ReactNode; label: string; value: string | number; sub?: string; gradient: string; delta?: number;
 }) {
   return (
     <div className={`rounded-2xl p-5 flex items-center gap-4 shadow-sm ${gradient}`}>
       <div className="p-3 rounded-xl bg-white/20 backdrop-blur-sm">{icon}</div>
-      <div>
+      <div className="flex-1 min-w-0">
         <p className="text-xs font-medium uppercase tracking-wide opacity-75 text-white">{label}</p>
-        <p className="text-2xl font-bold text-white truncate max-w-[140px]" title={String(value)}>{value}</p>
+        <div className="flex items-end gap-2">
+          <p className="text-2xl font-bold text-white truncate max-w-[120px]" title={String(value)}>{value}</p>
+          {delta !== undefined && delta !== 0 && (
+            <span className={`text-xs font-semibold mb-0.5 px-1.5 py-0.5 rounded-full ${delta > 0 ? "bg-white/20 text-white" : "bg-black/20 text-white/80"}`}>
+              {delta > 0 ? `▲ +${delta}` : `▼ ${delta}`}
+            </span>
+          )}
+        </div>
         {sub && <p className="text-xs text-white/70 mt-0.5">{sub}</p>}
       </div>
     </div>
@@ -367,7 +374,7 @@ function SourcesPanel({
 }
 
 // ─── Results Table ────────────────────────────────────────────────────────────
-function ResultsTable({ results, domain, withAi, runs }: { results: KeywordResult[]; domain: string; withAi: number; runs: Run[] }) {
+function ResultsTable({ results, domain, withAi, runs, prevResults }: { results: KeywordResult[]; domain: string; withAi: number; runs: Run[]; prevResults?: KeywordResult[] }) {
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
   const [activeTab, setActiveTab] = useState<"results" | "sources" | "charts">("results");
   const sourceRecap = computeSourceRecap(results);
@@ -422,23 +429,55 @@ function ResultsTable({ results, domain, withAi, runs }: { results: KeywordResul
                 <th className="text-center px-4 py-3">Posizione</th>
                 <th className="text-center px-4 py-3">In AI</th>
                 <th className="text-center px-4 py-3">Fonti AI</th>
+                {prevResults && prevResults.length > 0 && <th className="text-center px-4 py-3">VS Prec.</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {results.map((r, i) => (
-                <React.Fragment key={i}>
-                  <tr className={`hover:bg-gray-50 transition-colors ${r.hasAiOverview ? "cursor-pointer" : ""}`} onClick={() => r.hasAiOverview && toggleRow(i)}>
-                    <td className="px-4 py-3 text-gray-400">{r.hasAiOverview ? (expandedRows.has(i) ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : null}</td>
-                    <td className="px-4 py-3 font-medium text-gray-800">{r.keyword}</td>
-                    <td className="px-4 py-3 text-center"><Badge active={r.hasAiOverview} label={r.hasAiOverview ? "Sì" : "No"} /></td>
-                    <td className="px-4 py-3 text-center"><Badge active={r.domainInOrganic} label={r.domainInOrganic ? "Sì" : "No"} /></td>
-                    <td className="px-4 py-3 text-center">{r.domainPosition ? <span className="font-semibold text-indigo-600">#{r.domainPosition}</span> : <span className="text-gray-300">—</span>}</td>
-                    <td className="px-4 py-3 text-center"><Badge active={r.domainInAiSources} label={r.domainInAiSources ? "Sì" : "No"} /></td>
-                    <td className="px-4 py-3 text-center">{r.hasAiOverview ? <span className="font-medium text-violet-600">{r.aiSources.length} fonti</span> : <span className="text-gray-300">—</span>}</td>
-                  </tr>
-                  {expandedRows.has(i) && <SourcesRow sources={r.aiSources} trackedDomain={domain} />}
-                </React.Fragment>
-              ))}
+              {results.map((r, i) => {
+                const prev = prevResults?.find(p => p.keyword === r.keyword);
+                const aiChanged = prev ? (r.hasAiOverview !== prev.hasAiOverview ? (r.hasAiOverview ? "gained" : "lost") : null) : null;
+                const posNow = r.domainPosition ?? null;
+                const posPrev = prev?.domainPosition ?? null;
+                const posDelta = (posNow !== null && posPrev !== null) ? posPrev - posNow : null; // positive = improved
+                const hasDiff = aiChanged !== null || posDelta !== null;
+                return (
+                  <React.Fragment key={i}>
+                    <tr className={`hover:bg-gray-50 transition-colors ${r.hasAiOverview ? "cursor-pointer" : ""}`} onClick={() => r.hasAiOverview && toggleRow(i)}>
+                      <td className="px-4 py-3 text-gray-400">{r.hasAiOverview ? (expandedRows.has(i) ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : null}</td>
+                      <td className="px-4 py-3 font-medium text-gray-800">{r.keyword}</td>
+                      <td className="px-4 py-3 text-center"><Badge active={r.hasAiOverview} label={r.hasAiOverview ? "Sì" : "No"} /></td>
+                      <td className="px-4 py-3 text-center"><Badge active={r.domainInOrganic} label={r.domainInOrganic ? "Sì" : "No"} /></td>
+                      <td className="px-4 py-3 text-center">{r.domainPosition ? <span className="font-semibold text-indigo-600">#{r.domainPosition}</span> : <span className="text-gray-300">—</span>}</td>
+                      <td className="px-4 py-3 text-center"><Badge active={r.domainInAiSources} label={r.domainInAiSources ? "Sì" : "No"} /></td>
+                      <td className="px-4 py-3 text-center">{r.hasAiOverview ? <span className="font-medium text-violet-600">{r.aiSources.length} fonti</span> : <span className="text-gray-300">—</span>}</td>
+                      {prevResults && prevResults.length > 0 && (
+                        <td className="px-4 py-3 text-center">
+                          {!prev ? (
+                            <span className="text-xs text-gray-300 italic">nuovo</span>
+                          ) : !hasDiff ? (
+                            <span className="text-xs text-gray-300">—</span>
+                          ) : (
+                            <div className="flex flex-col items-center gap-0.5">
+                              {aiChanged === "gained" && (
+                                <span className="inline-flex items-center gap-0.5 text-xs font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">▲ AI</span>
+                              )}
+                              {aiChanged === "lost" && (
+                                <span className="inline-flex items-center gap-0.5 text-xs font-semibold text-red-500 bg-red-50 px-1.5 py-0.5 rounded-full">▼ AI</span>
+                              )}
+                              {posDelta !== null && posDelta !== 0 && (
+                                <span className={`inline-flex items-center gap-0.5 text-xs font-semibold px-1.5 py-0.5 rounded-full ${posDelta > 0 ? "text-emerald-600 bg-emerald-50" : "text-red-500 bg-red-50"}`}>
+                                  {posDelta > 0 ? `▲ +${posDelta}` : `▼ ${posDelta}`} pos
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                    {expandedRows.has(i) && <SourcesRow sources={r.aiSources} trackedDomain={domain} />}
+                  </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -861,6 +900,7 @@ export default function Dashboard() {
   const [error, setError] = useState("");
   const [view, setView] = useState<"projects" | "project" | "run">("projects");
   const [mainTab, setMainTab] = useState<"projects" | "search">("search");
+  const [prevRunResults, setPrevRunResults] = useState<KeywordResult[]>([]);
 
   useEffect(() => {
     fetch("/api/projects").then(r => r.json()).then(d => setProjects(d.projects || []));
@@ -886,6 +926,18 @@ export default function Dashboard() {
     const res = await fetch(`/api/projects/${run.project_id}/runs/${run.id}`);
     const data = await res.json();
     setRunResults(data.results || []);
+
+    // Load previous run for comparison
+    const currentIdx = runs.findIndex(r => r.id === run.id);
+    const prevRun = runs[currentIdx + 1];
+    if (prevRun) {
+      const prevRes = await fetch(`/api/projects/${prevRun.project_id}/runs/${prevRun.id}`);
+      const prevData = await prevRes.json();
+      setPrevRunResults(prevData.results || []);
+    } else {
+      setPrevRunResults([]);
+    }
+
     setView("run");
   }
 
@@ -900,6 +952,20 @@ export default function Dashboard() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...selectedProject, keywords }),
     });
+
+    // Capture previous run results for comparison
+    if (runs.length > 0) {
+      const lastRun = runs[0];
+      try {
+        const prevRes = await fetch(`/api/projects/${lastRun.project_id}/runs/${lastRun.id}`);
+        const prevData = await prevRes.json();
+        setPrevRunResults(prevData.results || []);
+      } catch {
+        setPrevRunResults([]);
+      }
+    } else {
+      setPrevRunResults([]);
+    }
 
     setError("");
     setLoading(true);
@@ -1123,12 +1189,16 @@ export default function Dashboard() {
           {view === "run" && runResults.length > 0 && selectedProject && (
             <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <StatCard icon={<Search size={18} className="text-white" />} label="Keywords analizzate" value={total} gradient="bg-gradient-to-br from-indigo-500 to-indigo-700" />
-                <StatCard icon={<Bot size={18} className="text-white" />} label="Con AI Overview" value={`${withAi} (${aiPct}%)`} sub="delle keyword" gradient="bg-gradient-to-br from-violet-500 to-violet-700" />
-                <StatCard icon={<Globe size={18} className="text-white" />} label="Dominio in organico" value={`${withDomain} (${domainPct}%)`} sub="top 10" gradient="bg-gradient-to-br from-emerald-500 to-teal-600" />
-                <StatCard icon={<CheckCircle2 size={18} className="text-white" />} label="Dominio in AI" value={withDomainInAi} sub="citato come fonte" gradient="bg-gradient-to-br from-amber-400 to-orange-500" />
+                <StatCard icon={<Search size={18} className="text-white" />} label="Keywords analizzate" value={total} gradient="bg-gradient-to-br from-indigo-500 to-indigo-700"
+                  delta={prevRunResults.length ? total - prevRunResults.filter(r => r.status === "success").length : undefined} />
+                <StatCard icon={<Bot size={18} className="text-white" />} label="Con AI Overview" value={`${withAi} (${aiPct}%)`} sub="delle keyword" gradient="bg-gradient-to-br from-violet-500 to-violet-700"
+                  delta={prevRunResults.length ? withAi - prevRunResults.filter(r => r.hasAiOverview).length : undefined} />
+                <StatCard icon={<Globe size={18} className="text-white" />} label="Dominio in organico" value={`${withDomain} (${domainPct}%)`} sub="top 10" gradient="bg-gradient-to-br from-emerald-500 to-teal-600"
+                  delta={prevRunResults.length ? withDomain - prevRunResults.filter(r => r.domainInOrganic).length : undefined} />
+                <StatCard icon={<CheckCircle2 size={18} className="text-white" />} label="Dominio in AI" value={withDomainInAi} sub="citato come fonte" gradient="bg-gradient-to-br from-amber-400 to-orange-500"
+                  delta={prevRunResults.length ? withDomainInAi - prevRunResults.filter(r => r.domainInAiSources).length : undefined} />
               </div>
-              <ResultsTable results={runResults} domain={selectedProject.domain} withAi={withAi} runs={runs} />
+              <ResultsTable results={runResults} domain={selectedProject.domain} withAi={withAi} runs={runs} prevResults={prevRunResults} />
             </div>
           )}
         </main>
