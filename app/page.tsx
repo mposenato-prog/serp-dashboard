@@ -497,7 +497,9 @@ function SearchView() {
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [error, setError] = useState("");
-  const [expandedQuery, setExpandedQuery] = useState<string | null>(null);
+  const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const [showStats, setShowStats] = useState(false);
+  const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
 
   const queries = queriesRaw.split("\n").map(q => q.trim()).filter(Boolean).slice(0, 50);
 
@@ -507,7 +509,9 @@ function SearchView() {
     setError("");
     setResults([]);
     setProgress(0);
-    setExpandedQuery(null);
+    setExpandedRow(null);
+    setShowStats(false);
+    setSelectedDomain(null);
 
     const allResults: SearchResult[] = [];
     for (let i = 0; i < queries.length; i++) {
@@ -531,45 +535,56 @@ function SearchView() {
     setLoading(false);
   }
 
-  // Aggregate stats: top domains in AI sources
+  // Aggregate: top domains with their URLs per query
   const domainStats = (() => {
-    const map = new Map<string, { count: number; queries: string[] }>();
+    const map = new Map<string, { count: number; urls: { title: string; url: string; query: string }[] }>();
     for (const r of results) {
       if (!r.hasAiOverview) continue;
       const seen = new Set<string>();
       for (const s of r.aiSources) {
-        if (!seen.has(s.domain)) {
-          seen.add(s.domain);
-          const ex = map.get(s.domain);
-          if (ex) { ex.count++; ex.queries.push(r.keyword); }
-          else map.set(s.domain, { count: 1, queries: [r.keyword] });
-        }
+        if (!seen.has(s.domain)) seen.add(s.domain);
+        const ex = map.get(s.domain);
+        const entry = { title: s.title, url: s.url, query: r.keyword };
+        if (ex) { ex.urls.push(entry); if (!ex.urls.find(u => u.query === r.keyword && seen.size === 1)) ex.count = new Set(ex.urls.map(u => u.query)).size; }
+        else map.set(s.domain, { count: 1, urls: [entry] });
       }
     }
+    // recompute count = unique queries
     return Array.from(map.entries())
-      .map(([domain, v]) => ({ domain, count: v.count, queries: v.queries }))
-      .sort((a, b) => b.count - a.count);
+      .map(([domain, v]) => ({
+        domain,
+        queryCount: new Set(v.urls.map(u => u.query)).size,
+        urls: v.urls,
+      }))
+      .sort((a, b) => b.queryCount - a.queryCount);
   })();
 
   const totalQueries = results.length;
   const withAi = results.filter(r => r.hasAiOverview).length;
-  const intentCounts = results.reduce((acc, r) => {
-    acc[r.intent] = (acc[r.intent] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
+  const intentCounts = results.reduce((acc, r) => { acc[r.intent] = (acc[r.intent] || 0) + 1; return acc; }, {} as Record<string, number>);
+
+  // URLs for selected domain grouped by query
+  const selectedDomainData = selectedDomain ? domainStats.find(d => d.domain === selectedDomain) : null;
+  const urlsByQuery = selectedDomainData
+    ? selectedDomainData.urls.reduce((acc, u) => {
+        if (!acc[u.query]) acc[u.query] = [];
+        acc[u.query].push(u);
+        return acc;
+      }, {} as Record<string, { title: string; url: string }[]>)
+    : {};
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
+    <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
       <h2 className="text-xl font-bold text-gray-900">Ricerca</h2>
 
       {/* Input */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-3">
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
         <div className="flex gap-3 items-start">
           <div className="flex-1 space-y-1">
             <label className="text-xs font-medium text-gray-500 uppercase tracking-wide block">Query / Prompt (una per riga, max 50)</label>
             <textarea
               className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-indigo-400 font-mono resize-none"
-              rows={6}
+              rows={5}
               placeholder={"cos'è il SEO\ncome fare link building\nmigliore agenzia SEO Italia\n..."}
               value={queriesRaw}
               onChange={e => setQueriesRaw(e.target.value)}
@@ -593,95 +608,182 @@ function SearchView() {
             </button>
           </div>
         </div>
-        {error && <p className="text-xs text-red-500">{error}</p>}
+        {error && <p className="text-xs text-red-500 mt-2">{error}</p>}
       </div>
 
       {results.length > 0 && (
         <>
-          {/* Summary stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <StatCard icon={<Search size={18} className="text-indigo-600" />} label="Query analizzate" value={totalQueries} color="bg-indigo-50" />
-            <StatCard icon={<Bot size={18} className="text-violet-600" />} label="Con AI Overview" value={`${withAi} (${totalQueries ? Math.round(withAi/totalQueries*100) : 0}%)`} color="bg-violet-50" />
-            <StatCard icon={<Sparkles size={18} className="text-amber-600" />} label="Domini unici in AI" value={domainStats.length} color="bg-amber-50" />
-            <StatCard icon={<Globe size={18} className="text-emerald-600" />} label="Intento prevalente" value={Object.entries(intentCounts).sort((a,b)=>b[1]-a[1])[0]?.[0] ?? "—"} color="bg-emerald-50" />
+          {/* Results table */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-gray-900">Risultati — {totalQueries} query</h3>
+              <button
+                onClick={() => { setShowStats(s => !s); setSelectedDomain(null); }}
+                className={`flex items-center gap-1.5 text-sm font-medium px-4 py-1.5 rounded-xl border transition-colors ${showStats ? "bg-indigo-600 text-white border-indigo-600" : "border-gray-200 text-gray-600 hover:border-indigo-400 hover:text-indigo-600"}`}
+              >
+                <BarChart3 size={14} /> Statistiche
+              </button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+                  <tr>
+                    <th className="w-8 px-4 py-3"></th>
+                    <th className="text-left px-4 py-3">Query</th>
+                    <th className="text-center px-4 py-3">Intento</th>
+                    <th className="text-center px-4 py-3">AI Overview</th>
+                    <th className="text-center px-4 py-3">Fonti AI</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {results.map((r, i) => (
+                    <React.Fragment key={i}>
+                      <tr
+                        className={`transition-colors ${r.hasAiOverview ? "cursor-pointer hover:bg-gray-50" : ""}`}
+                        onClick={() => r.hasAiOverview && setExpandedRow(expandedRow === r.keyword ? null : r.keyword)}
+                      >
+                        <td className="px-4 py-3 text-gray-400 text-xs">{r.hasAiOverview ? (expandedRow === r.keyword ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : null}</td>
+                        <td className="px-4 py-3 font-medium text-gray-800">{r.keyword}</td>
+                        <td className="px-4 py-3 text-center">
+                          <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${r.intentColor}`}>{r.intent}</span>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <Badge active={r.hasAiOverview} label={r.hasAiOverview ? "Sì" : "No"} />
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          {r.hasAiOverview
+                            ? <span className="font-medium text-violet-600">{r.aiSources.length} fonti</span>
+                            : <span className="text-gray-300">—</span>}
+                        </td>
+                      </tr>
+                      {expandedRow === r.keyword && r.aiSources.length > 0 && (
+                        <tr>
+                          <td colSpan={5} className="px-6 py-4 bg-indigo-50/40 border-b border-indigo-100">
+                            <p className="text-xs font-semibold text-indigo-600 mb-3 uppercase tracking-wide flex items-center gap-1.5">
+                              <Bot size={12} /> Fonti AI — {r.aiSources.length} risultati
+                            </p>
+                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                              {r.aiSources.map((s, j) => (
+                                <a key={j} href={s.url} target="_blank" rel="noopener noreferrer"
+                                  className="flex items-start gap-2 p-2.5 rounded-xl border border-gray-200 bg-white hover:border-indigo-200 text-xs transition-all">
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img src={`https://www.google.com/s2/favicons?domain=${s.domain}&sz=32`} alt="" width={14} height={14} className="rounded-sm mt-0.5 shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                                  <div className="min-w-0">
+                                    <p className="font-medium text-gray-700 leading-tight truncate">{s.title}</p>
+                                    <p className="text-gray-400 mt-0.5 truncate">{s.domain}</p>
+                                  </div>
+                                </a>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Top domains */}
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-              <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
-                <Sparkles size={15} className="text-violet-500" />
-                <h3 className="text-sm font-semibold text-gray-900">Domini più citati in AI Overview</h3>
+          {/* Statistics panel */}
+          {showStats && (
+            <div className="space-y-4">
+              {/* Summary cards */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <StatCard icon={<Search size={18} className="text-indigo-600" />} label="Query analizzate" value={totalQueries} color="bg-indigo-50" />
+                <StatCard icon={<Bot size={18} className="text-violet-600" />} label="Con AI Overview" value={`${withAi} (${totalQueries ? Math.round(withAi / totalQueries * 100) : 0}%)`} color="bg-violet-50" />
+                <StatCard icon={<Sparkles size={18} className="text-amber-600" />} label="Domini unici in AI" value={domainStats.length} color="bg-amber-50" />
+                <StatCard icon={<Globe size={18} className="text-emerald-600" />} label="Intento prevalente" value={Object.entries(intentCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "—"} color="bg-emerald-50" />
               </div>
-              {domainStats.length === 0 ? (
-                <p className="px-5 py-6 text-sm text-gray-400 text-center">Nessuna fonte AI rilevata.</p>
-              ) : (
-                <div className="divide-y divide-gray-50">
-                  {domainStats.slice(0, 15).map((d, i) => {
-                    const pct = withAi ? Math.round((d.count / withAi) * 100) : 0;
+
+              {/* Intento breakdown */}
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                <h3 className="text-sm font-semibold text-gray-900 mb-3">Distribuzione intento</h3>
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(intentCounts).sort((a, b) => b[1] - a[1]).map(([intent, count]) => {
+                    const r = results.find(r => r.intent === intent);
                     return (
-                      <div key={i} className="px-5 py-3 flex items-center gap-3">
-                        <span className="text-xs text-gray-400 font-mono w-5 shrink-0">{i + 1}</span>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={`https://www.google.com/s2/favicons?domain=${d.domain}&sz=32`} alt="" width={16} height={16} className="rounded-sm shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-sm font-medium text-gray-800 truncate">{d.domain}</span>
-                            <span className="text-xs text-gray-500 shrink-0 ml-2">{d.count} query · {pct}%</span>
-                          </div>
-                          <div className="w-full bg-gray-100 rounded-full h-1.5">
-                            <div className="h-1.5 rounded-full bg-violet-400" style={{ width: `${pct}%` }} />
-                          </div>
-                        </div>
-                      </div>
+                      <span key={intent} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium ${r?.intentColor ?? "bg-gray-100 text-gray-600"}`}>
+                        {intent} <span className="font-bold">{count}</span>
+                      </span>
                     );
                   })}
                 </div>
-              )}
-            </div>
-
-            {/* Per-query results */}
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-              <div className="px-5 py-4 border-b border-gray-100">
-                <h3 className="text-sm font-semibold text-gray-900">Dettaglio per query</h3>
               </div>
-              <div className="divide-y divide-gray-50 max-h-[520px] overflow-y-auto">
-                {results.map((r, i) => (
-                  <div key={i}>
-                    <button
-                      onClick={() => setExpandedQuery(expandedQuery === r.keyword ? null : r.keyword)}
-                      className="w-full text-left px-5 py-3 hover:bg-gray-50 transition-colors flex items-center gap-3"
-                    >
-                      <span className="text-xs text-gray-400 font-mono w-5 shrink-0">{i + 1}</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-800 truncate">{r.keyword}</p>
-                        <div className="flex gap-2 mt-0.5">
-                          <span className={`text-xs px-1.5 py-0.5 rounded-full ${r.intentColor}`}>{r.intent}</span>
-                          <span className={`text-xs px-1.5 py-0.5 rounded-full ${r.hasAiOverview ? "bg-violet-100 text-violet-700" : "bg-gray-100 text-gray-400"}`}>
-                            {r.hasAiOverview ? `AI · ${r.aiSources.length} fonti` : "No AI"}
-                          </span>
-                        </div>
+
+              {/* Top domains table + detail panel */}
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
+                  <Sparkles size={15} className="text-violet-500" />
+                  <h3 className="text-sm font-semibold text-gray-900">Domini più citati in AI Overview</h3>
+                  <span className="text-xs text-gray-400 ml-1">— clicca per vedere gli URL</span>
+                </div>
+                <div className="flex">
+                  {/* Domain list */}
+                  <div className="w-80 shrink-0 border-r border-gray-100 divide-y divide-gray-50">
+                    {domainStats.length === 0 && (
+                      <p className="px-5 py-6 text-sm text-gray-400 text-center">Nessuna fonte AI.</p>
+                    )}
+                    {domainStats.map((d, i) => {
+                      const pct = withAi ? Math.round((d.queryCount / withAi) * 100) : 0;
+                      return (
+                        <button key={i} onClick={() => setSelectedDomain(selectedDomain === d.domain ? null : d.domain)}
+                          className={`w-full text-left px-4 py-3 flex items-center gap-3 transition-colors ${selectedDomain === d.domain ? "bg-indigo-50" : "hover:bg-gray-50"}`}>
+                          <span className="text-xs text-gray-400 font-mono w-5 shrink-0">{i + 1}</span>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={`https://www.google.com/s2/favicons?domain=${d.domain}&sz=32`} alt="" width={16} height={16} className="rounded-sm shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className={`text-sm font-medium truncate ${selectedDomain === d.domain ? "text-indigo-700" : "text-gray-800"}`}>{d.domain}</span>
+                              <span className="text-xs text-gray-400 shrink-0 ml-1">{d.queryCount} · {pct}%</span>
+                            </div>
+                            <div className="w-full bg-gray-100 rounded-full h-1.5">
+                              <div className="h-1.5 rounded-full bg-violet-400" style={{ width: `${pct}%` }} />
+                            </div>
+                          </div>
+                          <ChevronRight size={13} className={`shrink-0 text-gray-300 ${selectedDomain === d.domain ? "text-indigo-400" : ""}`} />
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* URL detail panel */}
+                  <div className="flex-1 p-5 overflow-y-auto max-h-[500px]">
+                    {!selectedDomain ? (
+                      <div className="flex flex-col items-center justify-center h-full text-gray-400 text-sm gap-2">
+                        <Link size={28} className="opacity-20" />
+                        <p>Seleziona un dominio per vedere gli URL</p>
                       </div>
-                      {r.hasAiOverview && (expandedQuery === r.keyword ? <ChevronDown size={14} className="text-gray-400 shrink-0" /> : <ChevronRight size={14} className="text-gray-400 shrink-0" />)}
-                    </button>
-                    {expandedQuery === r.keyword && r.aiSources.length > 0 && (
-                      <div className="bg-indigo-50/40 px-5 pb-3 space-y-1.5">
-                        {r.aiSources.map((s, j) => (
-                          <a key={j} href={s.url} target="_blank" rel="noopener noreferrer"
-                            className="flex items-center gap-2 text-xs text-indigo-600 hover:underline">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={`https://www.google.com/s2/favicons?domain=${s.domain}&sz=32`} alt="" width={12} height={12} className="rounded-sm shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                            <span className="truncate">{s.title}</span>
-                            <span className="text-gray-400 shrink-0">· {s.domain}</span>
-                          </a>
+                    ) : (
+                      <div className="space-y-5">
+                        <div className="flex items-center gap-2">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={`https://www.google.com/s2/favicons?domain=${selectedDomain}&sz=32`} alt="" width={18} height={18} className="rounded-sm" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                          <h4 className="font-bold text-gray-900">{selectedDomain}</h4>
+                          <span className="text-xs text-gray-400 ml-1">{selectedDomainData?.queryCount} query</span>
+                        </div>
+                        {Object.entries(urlsByQuery).map(([query, urls]) => (
+                          <div key={query} className="space-y-1.5">
+                            <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide">{query}</p>
+                            {urls.map((u, i) => (
+                              <a key={i} href={u.url} target="_blank" rel="noopener noreferrer"
+                                className="flex items-start gap-2 p-2.5 rounded-xl border border-gray-100 hover:border-indigo-200 bg-white transition-colors">
+                                <Link size={12} className="text-indigo-400 mt-0.5 shrink-0" />
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium text-indigo-600 hover:underline truncate">{u.title}</p>
+                                  <p className="text-xs text-gray-400 truncate mt-0.5">{u.url}</p>
+                                </div>
+                              </a>
+                            ))}
+                          </div>
                         ))}
                       </div>
                     )}
                   </div>
-                ))}
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </>
       )}
     </div>
