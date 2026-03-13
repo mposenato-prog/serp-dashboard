@@ -49,7 +49,7 @@ STRUTTURA SUGGERITA (puoi modificarla):
 
 <h2>Consigli degli esperti per ottimizzare i risultati</h2>${paaSection}
 
-<h2>Conclusioni e prossimi passi</h2>
+<h2>Conclusioni</h2>
 
 NOTE SEO:
 - H1: includi la keyword principale esatta
@@ -146,6 +146,19 @@ export default function ArticleGenerator({ result, onClose }: Props) {
 
       // Wait a moment to show log
       await new Promise(r => setTimeout(r, 600));
+
+      // Prepend scraping summary to prompt
+      const successful = pages.filter(p => !p.error && p.text.length > 100);
+      const failed = pages.filter(p => p.error || p.text.length <= 100);
+      const scrapeSummary = [
+        `// FONTI COMPETITOR ANALIZZATE:`,
+        ...successful.map(p => `// ✓ ${p.title || p.url}`),
+        ...failed.map(p => `// ✗ ${p.url} — non disponibile`),
+        successful.length === 0 ? `// ⚠️ Nessuna fonte scrappata correttamente — il testo sarà generato senza dati competitor` : "",
+        ``,
+      ].filter(l => l !== undefined).join("\n");
+
+      setPrompt(prev => scrapeSummary + prev);
       setStep("prompt");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Errore scraping");
