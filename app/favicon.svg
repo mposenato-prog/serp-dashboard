@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="8" fill="#4f46e5"/>
+  <!-- Eye shape -->
+  <ellipse cx="16" cy="16" rx="10" ry="7" fill="none" stroke="white" stroke-width="2"/>
+  <!-- Iris -->
+  <circle cx="16" cy="16" r="4" fill="white"/>
+  <!-- Pupil -->
+  <circle cx="16" cy="16" r="2" fill="#4f46e5"/>
+  <!-- AI spark top-right -->
+  <circle cx="23" cy="9" r="1.5" fill="#a5b4fc"/>
+</svg>

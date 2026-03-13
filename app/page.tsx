@@ -937,7 +937,7 @@ export default function Dashboard() {
       <header className="bg-white border-b border-gray-100 px-6 py-4 flex items-center gap-3">
         <button onClick={() => { setMainTab("projects"); setView("projects"); }} className="flex items-center gap-2">
           <div className="bg-indigo-600 p-2 rounded-xl"><BarChart3 size={20} className="text-white" /></div>
-          <h1 className="text-lg font-bold text-gray-900">SERP Dashboard</h1>
+          <h1 className="text-lg font-bold text-gray-900">AI Sight</h1>
         </button>
 
         {/* Main tabs */}
