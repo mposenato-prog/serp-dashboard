@@ -943,16 +943,16 @@ export default function Dashboard() {
         {/* Main tabs */}
         <div className="flex gap-1 ml-4 bg-gray-100 rounded-xl p-1">
           <button
-            onClick={() => { setMainTab("projects"); setView("projects"); }}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${mainTab === "projects" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-800"}`}
-          >
-            <FolderOpen size={13} className="inline mr-1.5" />Progetti
-          </button>
-          <button
             onClick={() => setMainTab("search")}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${mainTab === "search" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-800"}`}
           >
             <Search size={13} className="inline mr-1.5" />Ricerca
+          </button>
+          <button
+            onClick={() => { setMainTab("projects"); setView("projects"); }}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${mainTab === "projects" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-800"}`}
+          >
+            <FolderOpen size={13} className="inline mr-1.5" />Progetti
           </button>
         </div>
 
@@ -974,7 +974,6 @@ export default function Dashboard() {
             <span className="text-sm text-gray-500">Nuova analisi</span>
           </>
         )}
-        <span className="ml-auto text-xs text-gray-400">powered by SerpApi</span>
       </header>
 
       {mainTab === "search" && (
