@@ -491,118 +491,198 @@ function ResultsTable({ results, domain, withAi, runs }: { results: KeywordResul
 
 // ─── Search View ─────────────────────────────────────────────────────────────
 function SearchView() {
-  const [query, setQuery] = useState("");
+  const [queriesRaw, setQueriesRaw] = useState("");
   const [locationIdx, setLocationIdx] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<SearchResult | null>(null);
+  const [progress, setProgress] = useState(0);
+  const [results, setResults] = useState<SearchResult[]>([]);
   const [error, setError] = useState("");
+  const [expandedQuery, setExpandedQuery] = useState<string | null>(null);
+
+  const queries = queriesRaw.split("\n").map(q => q.trim()).filter(Boolean).slice(0, 50);
 
   async function handleSearch() {
-    if (!query.trim()) return;
+    if (!queries.length) return;
     setLoading(true);
     setError("");
-    setResult(null);
-    try {
-      const res = await fetch("/api/search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          keyword: query.trim(),
-          location: LOCATION_OPTIONS[locationIdx].gl,
-          language: LOCATION_OPTIONS[locationIdx].hl,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Errore API");
-      setResult(data.result);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Errore sconosciuto");
-    } finally {
-      setLoading(false);
+    setResults([]);
+    setProgress(0);
+    setExpandedQuery(null);
+
+    const allResults: SearchResult[] = [];
+    for (let i = 0; i < queries.length; i++) {
+      try {
+        const res = await fetch("/api/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            keyword: queries[i],
+            location: LOCATION_OPTIONS[locationIdx].gl,
+            language: LOCATION_OPTIONS[locationIdx].hl,
+          }),
+        });
+        const data = await res.json();
+        if (res.ok) allResults.push(data.result);
+      } catch { /* skip */ }
+      setProgress(Math.round(((i + 1) / queries.length) * 100));
     }
+
+    setResults(allResults);
+    setLoading(false);
   }
 
-  return (
-    <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
-      <h2 className="text-xl font-bold text-gray-900">Ricerca rapida</h2>
+  // Aggregate stats: top domains in AI sources
+  const domainStats = (() => {
+    const map = new Map<string, { count: number; queries: string[] }>();
+    for (const r of results) {
+      if (!r.hasAiOverview) continue;
+      const seen = new Set<string>();
+      for (const s of r.aiSources) {
+        if (!seen.has(s.domain)) {
+          seen.add(s.domain);
+          const ex = map.get(s.domain);
+          if (ex) { ex.count++; ex.queries.push(r.keyword); }
+          else map.set(s.domain, { count: 1, queries: [r.keyword] });
+        }
+      }
+    }
+    return Array.from(map.entries())
+      .map(([domain, v]) => ({ domain, count: v.count, queries: v.queries }))
+      .sort((a, b) => b.count - a.count);
+  })();
 
-      {/* Search bar */}
+  const totalQueries = results.length;
+  const withAi = results.filter(r => r.hasAiOverview).length;
+  const intentCounts = results.reduce((acc, r) => {
+    acc[r.intent] = (acc[r.intent] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  return (
+    <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
+      <h2 className="text-xl font-bold text-gray-900">Ricerca</h2>
+
+      {/* Input */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-3">
-        <div className="flex gap-3">
-          <input
-            className="flex-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-indigo-400"
-            placeholder="Inserisci una query..."
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && handleSearch()}
-          />
-          <select
-            className="border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-400"
-            value={locationIdx}
-            onChange={e => setLocationIdx(Number(e.target.value))}
-          >
-            {LOCATION_OPTIONS.map((o, i) => <option key={i} value={i}>{o.label}</option>)}
-          </select>
-          <button
-            onClick={handleSearch}
-            disabled={loading || !query.trim()}
-            className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-medium rounded-xl px-5 py-2 flex items-center gap-2"
-          >
-            {loading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
-            Cerca
-          </button>
+        <div className="flex gap-3 items-start">
+          <div className="flex-1 space-y-1">
+            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide block">Query / Prompt (una per riga, max 50)</label>
+            <textarea
+              className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-indigo-400 font-mono resize-none"
+              rows={6}
+              placeholder={"cos'è il SEO\ncome fare link building\nmigliore agenzia SEO Italia\n..."}
+              value={queriesRaw}
+              onChange={e => setQueriesRaw(e.target.value)}
+            />
+            <p className="text-xs text-gray-400">{queries.length}/50 query</p>
+          </div>
+          <div className="flex flex-col gap-2 pt-5">
+            <select
+              className="border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-400"
+              value={locationIdx}
+              onChange={e => setLocationIdx(Number(e.target.value))}
+            >
+              {LOCATION_OPTIONS.map((o, i) => <option key={i} value={i}>{o.label}</option>)}
+            </select>
+            <button
+              onClick={handleSearch}
+              disabled={loading || !queries.length}
+              className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-medium rounded-xl px-5 py-2.5 flex items-center justify-center gap-2"
+            >
+              {loading ? <><Loader2 size={14} className="animate-spin" />{progress}%</> : <><Search size={14} />Analizza</>}
+            </button>
+          </div>
         </div>
         {error && <p className="text-xs text-red-500">{error}</p>}
       </div>
 
-      {/* Results */}
-      {result && (
-        <div className="space-y-4">
-          {/* Intent + AI Overview */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Intento</p>
-              <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium ${result.intentColor}`}>
-                {result.intent}
-              </span>
-            </div>
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">AI Overview</p>
-              <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium ${result.hasAiOverview ? "bg-violet-100 text-violet-700" : "bg-gray-100 text-gray-500"}`}>
-                <Bot size={14} />
-                {result.hasAiOverview ? "Presente" : "Assente"}
-              </span>
-            </div>
+      {results.length > 0 && (
+        <>
+          {/* Summary stats */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <StatCard icon={<Search size={18} className="text-indigo-600" />} label="Query analizzate" value={totalQueries} color="bg-indigo-50" />
+            <StatCard icon={<Bot size={18} className="text-violet-600" />} label="Con AI Overview" value={`${withAi} (${totalQueries ? Math.round(withAi/totalQueries*100) : 0}%)`} color="bg-violet-50" />
+            <StatCard icon={<Sparkles size={18} className="text-amber-600" />} label="Domini unici in AI" value={domainStats.length} color="bg-amber-50" />
+            <StatCard icon={<Globe size={18} className="text-emerald-600" />} label="Intento prevalente" value={Object.entries(intentCounts).sort((a,b)=>b[1]-a[1])[0]?.[0] ?? "—"} color="bg-emerald-50" />
           </div>
 
-          {/* AI Sources */}
-          {result.hasAiOverview && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Top domains */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
                 <Sparkles size={15} className="text-violet-500" />
-                <h3 className="text-sm font-semibold text-gray-900">Fonti AI</h3>
-                <span className="ml-auto text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full">{result.aiSources.length} fonti</span>
+                <h3 className="text-sm font-semibold text-gray-900">Domini più citati in AI Overview</h3>
               </div>
-              {result.aiSources.length === 0 ? (
-                <p className="px-5 py-4 text-sm text-gray-400">Nessuna fonte disponibile.</p>
+              {domainStats.length === 0 ? (
+                <p className="px-5 py-6 text-sm text-gray-400 text-center">Nessuna fonte AI rilevata.</p>
               ) : (
                 <div className="divide-y divide-gray-50">
-                  {result.aiSources.map((s, i) => (
-                    <a key={i} href={s.url} target="_blank" rel="noopener noreferrer"
-                      className="flex items-start gap-3 px-5 py-3 hover:bg-gray-50 transition-colors">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={`https://www.google.com/s2/favicons?domain=${s.domain}&sz=32`} alt="" width={16} height={16} className="rounded-sm mt-0.5 shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-indigo-600 hover:underline truncate">{s.title}</p>
-                        <p className="text-xs text-gray-400 truncate">{s.domain}</p>
+                  {domainStats.slice(0, 15).map((d, i) => {
+                    const pct = withAi ? Math.round((d.count / withAi) * 100) : 0;
+                    return (
+                      <div key={i} className="px-5 py-3 flex items-center gap-3">
+                        <span className="text-xs text-gray-400 font-mono w-5 shrink-0">{i + 1}</span>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={`https://www.google.com/s2/favicons?domain=${d.domain}&sz=32`} alt="" width={16} height={16} className="rounded-sm shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-sm font-medium text-gray-800 truncate">{d.domain}</span>
+                            <span className="text-xs text-gray-500 shrink-0 ml-2">{d.count} query · {pct}%</span>
+                          </div>
+                          <div className="w-full bg-gray-100 rounded-full h-1.5">
+                            <div className="h-1.5 rounded-full bg-violet-400" style={{ width: `${pct}%` }} />
+                          </div>
+                        </div>
                       </div>
-                    </a>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
-          )}
-        </div>
+
+            {/* Per-query results */}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="px-5 py-4 border-b border-gray-100">
+                <h3 className="text-sm font-semibold text-gray-900">Dettaglio per query</h3>
+              </div>
+              <div className="divide-y divide-gray-50 max-h-[520px] overflow-y-auto">
+                {results.map((r, i) => (
+                  <div key={i}>
+                    <button
+                      onClick={() => setExpandedQuery(expandedQuery === r.keyword ? null : r.keyword)}
+                      className="w-full text-left px-5 py-3 hover:bg-gray-50 transition-colors flex items-center gap-3"
+                    >
+                      <span className="text-xs text-gray-400 font-mono w-5 shrink-0">{i + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate">{r.keyword}</p>
+                        <div className="flex gap-2 mt-0.5">
+                          <span className={`text-xs px-1.5 py-0.5 rounded-full ${r.intentColor}`}>{r.intent}</span>
+                          <span className={`text-xs px-1.5 py-0.5 rounded-full ${r.hasAiOverview ? "bg-violet-100 text-violet-700" : "bg-gray-100 text-gray-400"}`}>
+                            {r.hasAiOverview ? `AI · ${r.aiSources.length} fonti` : "No AI"}
+                          </span>
+                        </div>
+                      </div>
+                      {r.hasAiOverview && (expandedQuery === r.keyword ? <ChevronDown size={14} className="text-gray-400 shrink-0" /> : <ChevronRight size={14} className="text-gray-400 shrink-0" />)}
+                    </button>
+                    {expandedQuery === r.keyword && r.aiSources.length > 0 && (
+                      <div className="bg-indigo-50/40 px-5 pb-3 space-y-1.5">
+                        {r.aiSources.map((s, j) => (
+                          <a key={j} href={s.url} target="_blank" rel="noopener noreferrer"
+                            className="flex items-center gap-2 text-xs text-indigo-600 hover:underline">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={`https://www.google.com/s2/favicons?domain=${s.domain}&sz=32`} alt="" width={12} height={12} className="rounded-sm shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                            <span className="truncate">{s.title}</span>
+                            <span className="text-gray-400 shrink-0">· {s.domain}</span>
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
@@ -622,7 +702,7 @@ export default function Dashboard() {
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
   const [view, setView] = useState<"projects" | "project" | "run">("projects");
-  const [mainTab, setMainTab] = useState<"projects" | "search">("projects");
+  const [mainTab, setMainTab] = useState<"projects" | "search">("search");
 
   useEffect(() => {
     fetch("/api/projects").then(r => r.json()).then(d => setProjects(d.projects || []));
