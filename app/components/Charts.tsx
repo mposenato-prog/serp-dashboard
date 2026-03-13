@@ -165,8 +165,8 @@ export function AiPresenceBreakdown({ results }: { results: KeywordResult[] }) {
   return (
     <ResponsiveContainer width="100%" height={220}>
       <PieChart>
-        <Pie data={data} cx="50%" cy="50%" outerRadius={90} paddingAngle={3}
-          dataKey="value" label={({ name, value }) => `${name}: ${value}`} labelLine={true} fontSize={11}>
+        <Pie data={data} cx="50%" cy="45%" outerRadius={85} paddingAngle={3}
+          dataKey="value" fontSize={11}>
           {data.map((d, i) => <Cell key={i} fill={d.fill} />)}
         </Pie>
         <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e5e7eb", fontSize: 12 }} />
