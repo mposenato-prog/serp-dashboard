@@ -50,7 +50,7 @@ function StatCard({ icon, label, value, sub, color }: {
       <div className={`p-3 rounded-xl ${color}`}>{icon}</div>
       <div>
         <p className="text-sm text-gray-500">{label}</p>
-        <p className="text-2xl font-bold text-gray-900">{value}</p>
+        <p className="text-2xl font-bold text-gray-900 truncate max-w-[140px]" title={String(value)}>{value}</p>
         {sub && <p className="text-xs text-gray-400">{sub}</p>}
       </div>
     </div>
@@ -680,7 +680,7 @@ function SearchView() {
                       </tr>
                       {expandedRow === r.keyword && r.aiSources.length > 0 && (
                         <tr>
-                          <td colSpan={5} className="px-6 py-4 bg-indigo-50/40 border-b border-indigo-100">
+                          <td colSpan={domain.trim() ? 7 : 5} className="px-6 py-4 bg-indigo-50/40 border-b border-indigo-100">
                             <p className="text-xs font-semibold text-indigo-600 mb-3 uppercase tracking-wide flex items-center gap-1.5">
                               <Bot size={12} /> Fonti AI — {r.aiSources.length} risultati
                             </p>
