@@ -22,6 +22,9 @@ REGOLE DI SCRITTURA:
 - Scrivi in HTML puro: usa solo tag h1, h2, h3, p, ul, li, strong, em, table, tr, td, th
 - Non includere tag html, head, body, script, style
 - Non aggiungere commenti HTML
+- NON usare mai blocchi di codice markdown (no \`\`\`html, no \`\`\`): rispondi SOLO con HTML diretto
+- La sezione Conclusioni deve essere sempre una lista <ul> con bullet point, non un paragrafo
+- Usa il tag <strong> per mettere in grassetto la keyword principale e le sue varianti ogni volta che compaiono nel testo
 - Lunghezza target: 1800-2500 parole`;
 
 function buildCompetitorBlock(pages: ScrapedPage[]): string {
@@ -95,7 +98,8 @@ Rispondi SOLO con l'HTML dell'articolo, nessun altro testo.`,
       ],
     });
 
-    const article = response.content[0].type === "text" ? response.content[0].text : "";
+    const raw = response.content[0].type === "text" ? response.content[0].text : "";
+    const article = raw.replace(/^```html\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/i, "").trim();
     const usage = response.usage as unknown as Record<string, number>;
 
     return NextResponse.json({
