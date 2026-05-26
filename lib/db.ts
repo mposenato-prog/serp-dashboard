@@ -53,4 +53,18 @@ export async function ensureSchema() {
       domain TEXT NOT NULL
     )
   `;
+
+  await sql`ALTER TABLE keyword_results ADD COLUMN IF NOT EXISTS domain_in_gemini BOOLEAN`;
+  await sql`ALTER TABLE keyword_results ADD COLUMN IF NOT EXISTS domain_in_perplexity BOOLEAN`;
+  await sql`ALTER TABLE keyword_results ADD COLUMN IF NOT EXISTS domain_in_chatgpt BOOLEAN`;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS ai_platform_sources (
+      id SERIAL PRIMARY KEY,
+      keyword_result_id INTEGER NOT NULL REFERENCES keyword_results(id) ON DELETE CASCADE,
+      platform TEXT NOT NULL,
+      url TEXT NOT NULL,
+      domain TEXT NOT NULL
+    )
+  `;
 }

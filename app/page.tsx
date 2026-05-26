@@ -12,6 +12,7 @@ import type { SearchResult } from "./api/search/route";
 
 const ArticleGenerator = dynamic(() => import("./components/ArticleGenerator"), { ssr: false });
 import type { KeywordResult, AiSource } from "./api/analyze/route";
+import type { AiPlatformResult } from "./api/ai-check/route";
 import { TrendChart, PositionChart, AiDonut, TopSourcesChart, AiPresenceBreakdown } from "./components/Charts";
 
 const LOCATION_OPTIONS = [
@@ -76,16 +77,31 @@ function Badge({ active, label }: { active: boolean; label: string }) {
   );
 }
 
-function SourcesRow({ sources, trackedDomain }: { sources: AiSource[]; trackedDomain: string }) {
+function AiBadge({ value, platform }: { value: boolean | null | undefined; platform: "gemini" | "perplexity" | "chatgpt" }) {
+  if (value === null || value === undefined) return <span className="text-gray-300 text-xs">—</span>;
+  const colors = {
+    gemini: value ? "bg-sky-100 text-sky-700 ring-1 ring-sky-200" : "bg-gray-100 text-gray-400",
+    perplexity: value ? "bg-teal-100 text-teal-700 ring-1 ring-teal-200" : "bg-gray-100 text-gray-400",
+    chatgpt: value ? "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200" : "bg-gray-100 text-gray-400",
+  };
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${colors[platform]}`}>
+      {value ? <CheckCircle2 size={10} /> : <XCircle size={10} />}
+      {value ? "Sì" : "No"}
+    </span>
+  );
+}
+
+function SourcesRow({ sources, trackedDomain, colSpan = 7 }: { sources: AiSource[]; trackedDomain: string; colSpan?: number }) {
   if (!sources.length) return (
-    <tr><td colSpan={7} className="px-6 py-3 bg-gray-50 text-xs text-gray-400 italic">Nessuna fonte disponibile.</td></tr>
+    <tr><td colSpan={colSpan} className="px-6 py-3 bg-gray-50 text-xs text-gray-400 italic">Nessuna fonte disponibile.</td></tr>
   );
   const clean = trackedDomain.replace(/^www\./, "").replace(/^https?:\/\//, "");
   return (
     <tr>
       <td colSpan={7} className="px-4 py-4 bg-indigo-50/40 border-b border-indigo-100">
         <p className="text-xs font-semibold text-indigo-600 mb-3 uppercase tracking-wide flex items-center gap-1.5">
-          <Bot size={12} /> Fonti AI Overview — {sources.length} risultati
+          <Bot size={12} /> Fonti Google AI Overview — {sources.length} risultati
         </p>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
           {sources.map((s, i) => {
@@ -374,10 +390,20 @@ function SourcesPanel({
 }
 
 // ─── Results Table ────────────────────────────────────────────────────────────
-function ResultsTable({ results, domain, withAi, runs, prevResults }: { results: KeywordResult[]; domain: string; withAi: number; runs: Run[]; prevResults?: KeywordResult[] }) {
+function ResultsTable({ results, domain, withAi, runs, prevResults, onAiCheck, aiCheckLoading, aiCheckProgress }: {
+  results: KeywordResult[];
+  domain: string;
+  withAi: number;
+  runs: Run[];
+  prevResults?: KeywordResult[];
+  onAiCheck?: () => void;
+  aiCheckLoading?: boolean;
+  aiCheckProgress?: number;
+}) {
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
   const [activeTab, setActiveTab] = useState<"results" | "sources" | "charts">("results");
   const sourceRecap = computeSourceRecap(results);
+  const hasAiPlatformData = results.some(r => r.domainInGemini !== null && r.domainInGemini !== undefined);
 
   function toggleRow(i: number) {
     setExpandedRows(prev => {
@@ -388,11 +414,17 @@ function ResultsTable({ results, domain, withAi, runs, prevResults }: { results:
   }
 
   function exportCSV() {
-    const header = ["Keyword", "AI Overview", "Dominio in Organico", "Posizione", "Dominio in AI", "Fonti AI", "Stato"].join(",");
+    const aiCols = hasAiPlatformData ? ["Gemini", "Perplexity", "ChatGPT"] : [];
+    const header = ["Keyword", "AI Overview", "Dominio in Organico", "Posizione", "Dominio in AI", "Fonti AI", "Stato", ...aiCols].join(",");
     const rows = results.map(r => [
       `"${r.keyword}"`, r.hasAiOverview ? "Sì" : "No", r.domainInOrganic ? "Sì" : "No",
       r.domainPosition ?? "-", r.domainInAiSources ? "Sì" : "No",
       `"${r.aiSources.map(s => s.domain).join(" | ")}"`, r.status,
+      ...(hasAiPlatformData ? [
+        r.domainInGemini == null ? "—" : r.domainInGemini ? "Sì" : "No",
+        r.domainInPerplexity == null ? "—" : r.domainInPerplexity ? "Sì" : "No",
+        r.domainInChatgpt == null ? "—" : r.domainInChatgpt ? "Sì" : "No",
+      ] : []),
     ].join(","));
     const csv = [header, ...rows].join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -412,9 +444,22 @@ function ResultsTable({ results, domain, withAi, runs, prevResults }: { results:
             </button>
           ))}
         </div>
-        <button onClick={exportCSV} className="flex items-center gap-1.5 text-sm text-indigo-600 hover:text-indigo-800 font-medium">
-          <Download size={14} /> Esporta CSV
-        </button>
+        <div className="flex items-center gap-2">
+          {onAiCheck && (
+            <button
+              onClick={onAiCheck}
+              disabled={aiCheckLoading}
+              className="flex items-center gap-1.5 text-sm font-semibold px-3 py-1.5 rounded-xl border border-violet-200 text-violet-700 hover:bg-violet-50 disabled:opacity-50 transition-colors"
+            >
+              {aiCheckLoading
+                ? <><Loader2 size={13} className="animate-spin" /> {aiCheckProgress ?? 0}%</>
+                : <><Bot size={13} /> Verifica AI</>}
+            </button>
+          )}
+          <button onClick={exportCSV} className="flex items-center gap-1.5 text-sm text-indigo-600 hover:text-indigo-800 font-medium">
+            <Download size={14} /> Esporta CSV
+          </button>
+        </div>
       </div>
 
       {activeTab === "results" && (
@@ -429,6 +474,9 @@ function ResultsTable({ results, domain, withAi, runs, prevResults }: { results:
                 <th className="text-center px-4 py-3">Posizione</th>
                 <th className="text-center px-4 py-3">In AI</th>
                 <th className="text-center px-4 py-3">Fonti AI</th>
+                <th className="text-center px-4 py-3 text-sky-600">Gemini</th>
+                <th className="text-center px-4 py-3 text-teal-600">Perplexity</th>
+                <th className="text-center px-4 py-3 text-emerald-600">ChatGPT</th>
                 {prevResults && prevResults.length > 0 && <th className="text-center px-4 py-3">VS Prec.</th>}
               </tr>
             </thead>
@@ -450,6 +498,9 @@ function ResultsTable({ results, domain, withAi, runs, prevResults }: { results:
                       <td className="px-4 py-3 text-center">{r.domainPosition ? <span className="font-semibold text-indigo-600">#{r.domainPosition}</span> : <span className="text-gray-300">—</span>}</td>
                       <td className="px-4 py-3 text-center"><Badge active={r.domainInAiSources} label={r.domainInAiSources ? "Sì" : "No"} /></td>
                       <td className="px-4 py-3 text-center">{r.hasAiOverview ? <span className="font-medium text-violet-600">{r.aiSources.length} fonti</span> : <span className="text-gray-300">—</span>}</td>
+                      <td className="px-4 py-3 text-center"><AiBadge value={r.domainInGemini} platform="gemini" /></td>
+                      <td className="px-4 py-3 text-center"><AiBadge value={r.domainInPerplexity} platform="perplexity" /></td>
+                      <td className="px-4 py-3 text-center"><AiBadge value={r.domainInChatgpt} platform="chatgpt" /></td>
                       {prevResults && prevResults.length > 0 && (
                         <td className="px-4 py-3 text-center">
                           {!prev ? (
@@ -474,7 +525,7 @@ function ResultsTable({ results, domain, withAi, runs, prevResults }: { results:
                         </td>
                       )}
                     </tr>
-                    {expandedRows.has(i) && <SourcesRow sources={r.aiSources} trackedDomain={domain} />}
+                    {expandedRows.has(i) && <SourcesRow sources={r.aiSources} trackedDomain={domain} colSpan={10 + (prevResults && prevResults.length > 0 ? 1 : 0)} />}
                   </React.Fragment>
                 );
               })}
@@ -901,6 +952,9 @@ export default function Dashboard() {
   const [view, setView] = useState<"projects" | "project" | "run">("projects");
   const [mainTab, setMainTab] = useState<"projects" | "search">("search");
   const [prevRunResults, setPrevRunResults] = useState<KeywordResult[]>([]);
+  const [aiCheckLoading, setAiCheckLoading] = useState(false);
+  const [aiCheckProgress, setAiCheckProgress] = useState(0);
+  const [currentRunId, setCurrentRunId] = useState<number | null>(null);
 
   useEffect(() => {
     fetch("/api/projects").then(r => r.json()).then(d => setProjects(d.projects || []));
@@ -923,6 +977,7 @@ export default function Dashboard() {
 
   async function selectRun(run: Run) {
     setSelectedRun(run);
+    setCurrentRunId(run.id);
     const res = await fetch(`/api/projects/${run.project_id}/runs/${run.id}`);
     const data = await res.json();
     setRunResults(data.results || []);
@@ -993,17 +1048,71 @@ export default function Dashboard() {
     }
 
     // Save run to DB
-    await fetch(`/api/projects/${selectedProject.id}/runs`, {
+    const runSaveRes = await fetch(`/api/projects/${selectedProject.id}/runs`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ results: allResults, location: selectedProject.location, language: selectedProject.language }),
     });
+    const runSaveData = await runSaveRes.json();
+    const savedRun = runSaveData.run ?? null;
 
     setRunResults(allResults);
+    setCurrentRunId(savedRun?.id ?? null);
     await loadRuns(selectedProject.id);
+    setSelectedRun(savedRun);
     setLoading(false);
     setView("run");
-    setSelectedRun(null);
+  }
+
+  async function handleAiCheck() {
+    if (!selectedProject || !runResults.length) return;
+    setAiCheckLoading(true);
+    setAiCheckProgress(0);
+
+    const keywords = runResults.map(r => r.keyword);
+    const BATCH = 3;
+    const allAiResults: AiPlatformResult[] = [];
+
+    for (let i = 0; i < keywords.length; i += BATCH) {
+      const batch = keywords.slice(i, i + BATCH);
+      try {
+        const res = await fetch("/api/ai-check", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ keywords: batch, domain: selectedProject.domain }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          allAiResults.push(...data.results);
+        }
+      } catch { /* skip batch */ }
+      setAiCheckProgress(Math.min(100, Math.round(((i + BATCH) / keywords.length) * 100)));
+    }
+
+    setRunResults(prev => prev.map(r => {
+      const ai = allAiResults.find(a => a.keyword === r.keyword);
+      if (!ai) return r;
+      return {
+        ...r,
+        domainInGemini: ai.gemini,
+        domainInPerplexity: ai.perplexity,
+        domainInChatgpt: ai.chatgpt,
+        geminiSources: ai.geminiSources,
+        perplexitySources: ai.perplexitySources,
+        chatgptSources: ai.chatgptSources,
+      };
+    }));
+
+    const runId = currentRunId ?? selectedRun?.id;
+    if (runId) {
+      await fetch(`/api/projects/${selectedProject.id}/runs/${runId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ aiResults: allAiResults }),
+      });
+    }
+
+    setAiCheckLoading(false);
   }
 
   async function deleteProject(id: number) {
@@ -1019,6 +1128,10 @@ export default function Dashboard() {
   const withDomainInAi = runResults.filter(r => r.domainInAiSources).length;
   const aiPct = total ? Math.round((withAi / total) * 100) : 0;
   const domainPct = total ? Math.round((withDomain / total) * 100) : 0;
+  const withDomainInGemini = runResults.filter(r => r.domainInGemini === true).length;
+  const withDomainInPerplexity = runResults.filter(r => r.domainInPerplexity === true).length;
+  const withDomainInChatgpt = runResults.filter(r => r.domainInChatgpt === true).length;
+  const hasCheckedAi = runResults.some(r => r.domainInGemini !== null && r.domainInGemini !== undefined);
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
@@ -1198,7 +1311,23 @@ export default function Dashboard() {
                 <StatCard icon={<CheckCircle2 size={18} className="text-white" />} label="Dominio in AI" value={withDomainInAi} sub="citato come fonte" gradient="bg-gradient-to-br from-amber-400 to-orange-500"
                   delta={prevRunResults.length ? withDomainInAi - prevRunResults.filter(r => r.domainInAiSources).length : undefined} />
               </div>
-              <ResultsTable results={runResults} domain={selectedProject.domain} withAi={withAi} runs={runs} prevResults={prevRunResults} />
+              {hasCheckedAi && (
+                <div className="grid grid-cols-3 gap-4">
+                  <StatCard icon={<Sparkles size={18} className="text-white" />} label="Dominio in Gemini" value={`${withDomainInGemini}/${total}`} sub={`${total ? Math.round(withDomainInGemini / total * 100) : 0}% delle keyword`} gradient="bg-gradient-to-br from-sky-500 to-sky-700" />
+                  <StatCard icon={<Globe size={18} className="text-white" />} label="Dominio in Perplexity" value={`${withDomainInPerplexity}/${total}`} sub={`${total ? Math.round(withDomainInPerplexity / total * 100) : 0}% delle keyword`} gradient="bg-gradient-to-br from-teal-500 to-teal-700" />
+                  <StatCard icon={<Bot size={18} className="text-white" />} label="Dominio in ChatGPT" value={`${withDomainInChatgpt}/${total}`} sub={`${total ? Math.round(withDomainInChatgpt / total * 100) : 0}% delle keyword`} gradient="bg-gradient-to-br from-emerald-500 to-emerald-700" />
+                </div>
+              )}
+              <ResultsTable
+                results={runResults}
+                domain={selectedProject.domain}
+                withAi={withAi}
+                runs={runs}
+                prevResults={prevRunResults}
+                onAiCheck={handleAiCheck}
+                aiCheckLoading={aiCheckLoading}
+                aiCheckProgress={aiCheckProgress}
+              />
             </div>
           )}
         </main>

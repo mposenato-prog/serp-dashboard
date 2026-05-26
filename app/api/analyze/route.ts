@@ -16,6 +16,12 @@ export interface KeywordResult {
   totalOrganicResults: number;
   status: "success" | "error";
   error?: string;
+  domainInGemini?: boolean | null;
+  domainInPerplexity?: boolean | null;
+  domainInChatgpt?: boolean | null;
+  geminiSources?: string[];
+  perplexitySources?: string[];
+  chatgptSources?: string[];
 }
 
 function extractDomain(url: string): string {
