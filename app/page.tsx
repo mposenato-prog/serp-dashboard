@@ -790,6 +790,10 @@ function SearchView() {
   const [showStats, setShowStats] = useState(false);
   const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
   const [generatingFor, setGeneratingFor] = useState<SearchResult | null>(null);
+  const [brandsRaw, setBrandsRaw] = useState("");
+  const [aiResults, setAiResults] = useState(new Map<string, AiPlatformResult>());
+  const [aiCheckLoading, setAiCheckLoading] = useState(false);
+  const [aiCheckProgress, setAiCheckProgress] = useState(0);
 
   const queries = queriesRaw.split("\n").map(q => q.trim()).filter(Boolean).slice(0, 50);
 
@@ -802,6 +806,8 @@ function SearchView() {
     setExpandedRow(null);
     setShowStats(false);
     setSelectedDomain(null);
+    setAiResults(new Map());
+    setAiCheckProgress(0);
 
     const allResults: SearchResult[] = [];
     for (let i = 0; i < queries.length; i++) {
@@ -824,6 +830,35 @@ function SearchView() {
 
     setResults(allResults);
     setLoading(false);
+  }
+
+  async function handleAiCheck() {
+    if (!results.length) return;
+    setAiCheckLoading(true);
+    setAiCheckProgress(0);
+    const keywords = results.map(r => r.keyword);
+    const brands = brandsRaw.split(",").map(b => b.trim()).filter(Boolean);
+    const BATCH = 3;
+    const newMap = new Map<string, AiPlatformResult>(aiResults);
+    for (let i = 0; i < keywords.length; i += BATCH) {
+      const batch = keywords.slice(i, i + BATCH);
+      try {
+        const res = await fetch("/api/ai-check", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ keywords: batch, domain: domain.trim(), brands }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          for (const r of data.results as AiPlatformResult[]) {
+            newMap.set(r.keyword, r);
+          }
+          setAiResults(new Map(newMap));
+        }
+      } catch { /* skip */ }
+      setAiCheckProgress(Math.min(100, Math.round(((i + BATCH) / keywords.length) * 100)));
+    }
+    setAiCheckLoading(false);
   }
 
   // Aggregate: top domains with their URLs per query
@@ -892,6 +927,13 @@ function SearchView() {
               value={domain}
               onChange={e => setDomain(e.target.value)}
             />
+            <input
+              className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all"
+              placeholder="Brand AI (es: Nike, Nike IT)"
+              title="Nomi brand per rilevare menzioni nei risultati AI, separati da virgola"
+              value={brandsRaw}
+              onChange={e => setBrandsRaw(e.target.value)}
+            />
             <select
               className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-white transition-all"
               value={locationIdx}
@@ -917,12 +959,21 @@ function SearchView() {
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-gray-900">Risultati <span className="text-gray-400 font-normal">— {totalQueries} query</span></h3>
-              <button
-                onClick={() => { setShowStats(s => !s); setSelectedDomain(null); }}
-                className={`flex items-center gap-1.5 text-sm font-semibold px-4 py-1.5 rounded-xl transition-all ${showStats ? "bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-200" : "border border-gray-200 text-gray-600 hover:border-indigo-400 hover:text-indigo-600"}`}
-              >
-                <BarChart3 size={14} /> Statistiche
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleAiCheck}
+                  disabled={aiCheckLoading || loading}
+                  className="flex items-center gap-1.5 text-sm font-semibold px-4 py-1.5 rounded-xl border border-sky-200 text-sky-600 hover:border-sky-400 hover:bg-sky-50 disabled:opacity-50 transition-all"
+                >
+                  {aiCheckLoading ? <><Loader2 size={13} className="animate-spin" />{aiCheckProgress}%</> : <><Bot size={13} />Verifica AI</>}
+                </button>
+                <button
+                  onClick={() => { setShowStats(s => !s); setSelectedDomain(null); }}
+                  className={`flex items-center gap-1.5 text-sm font-semibold px-4 py-1.5 rounded-xl transition-all ${showStats ? "bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-200" : "border border-gray-200 text-gray-600 hover:border-indigo-400 hover:text-indigo-600"}`}
+                >
+                  <BarChart3 size={14} /> Statistiche
+                </button>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -934,6 +985,11 @@ function SearchView() {
                     <th className="text-center px-4 py-3.5 font-semibold">AI Overview</th>
                     <th className="text-center px-4 py-3.5 font-semibold">Fonti AI</th>
                     {domain.trim() && <><th className="text-center px-4 py-3.5 font-semibold">Dominio in AI</th><th className="text-center px-4 py-3.5 font-semibold">Dominio in Organico</th></>}
+                    {aiResults.size > 0 && <>
+                      <th className="text-center px-4 py-3.5 font-semibold border-l border-sky-100 text-sky-600">Gemini</th>
+                      <th className="text-center px-4 py-3.5 font-semibold text-teal-600">Perplexity</th>
+                      <th className="text-center px-4 py-3.5 font-semibold text-emerald-600">ChatGPT</th>
+                    </>}
                     <th className="text-center px-4 py-3.5 font-semibold">Articolo</th>
                   </tr>
                 </thead>
@@ -941,10 +997,10 @@ function SearchView() {
                   {results.map((r, i) => (
                     <React.Fragment key={i}>
                       <tr
-                        className={`border-b border-gray-50 transition-colors ${i % 2 === 0 ? "bg-white" : "bg-slate-50/50"} ${r.hasAiOverview ? "cursor-pointer hover:bg-indigo-50/40" : ""}`}
-                        onClick={() => r.hasAiOverview && setExpandedRow(expandedRow === r.keyword ? null : r.keyword)}
+                        className={`border-b border-gray-50 transition-colors ${i % 2 === 0 ? "bg-white" : "bg-slate-50/50"} ${(r.hasAiOverview || aiResults.has(r.keyword)) ? "cursor-pointer hover:bg-indigo-50/40" : ""}`}
+                        onClick={() => (r.hasAiOverview || aiResults.has(r.keyword)) && setExpandedRow(expandedRow === r.keyword ? null : r.keyword)}
                       >
-                        <td className="px-4 py-3 text-gray-400 text-xs">{r.hasAiOverview ? (expandedRow === r.keyword ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : null}</td>
+                        <td className="px-4 py-3 text-gray-400 text-xs">{(r.hasAiOverview || aiResults.has(r.keyword)) ? (expandedRow === r.keyword ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : null}</td>
                         <td className="px-4 py-3 font-medium text-gray-800">{r.keyword}</td>
                         <td className="px-4 py-3 text-center">
                           <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${r.intentColor}`}>{r.intent}</span>
@@ -970,6 +1026,20 @@ function SearchView() {
                             </td>
                           </>
                         )}
+                        {aiResults.size > 0 && (() => {
+                          const ai = aiResults.get(r.keyword);
+                          return <>
+                            <td className="px-4 py-3 text-center border-l border-sky-50">
+                              <AiPresenceBadge cited={ai?.gemini ?? null} mention={ai?.geminiMention ?? null} platform="gemini" />
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <AiPresenceBadge cited={ai?.perplexity ?? null} mention={ai?.perplexityMention ?? null} platform="perplexity" />
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <AiPresenceBadge cited={ai?.chatgpt ?? null} mention={ai?.chatgptMention ?? null} platform="chatgpt" />
+                            </td>
+                          </>;
+                        })()}
                         <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
                           <button
                             onClick={() => setGeneratingFor(r)}
@@ -979,28 +1049,108 @@ function SearchView() {
                           </button>
                         </td>
                       </tr>
-                      {expandedRow === r.keyword && r.aiSources.length > 0 && (
-                        <tr>
-                          <td colSpan={domain.trim() ? 7 : 5} className="px-6 py-4 bg-indigo-50/40 border-b border-indigo-100">
-                            <p className="text-xs font-semibold text-indigo-600 mb-3 uppercase tracking-wide flex items-center gap-1.5">
-                              <Bot size={12} /> Fonti AI — {r.aiSources.length} risultati
-                            </p>
-                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                              {r.aiSources.map((s, j) => (
-                                <a key={j} href={s.url} target="_blank" rel="noopener noreferrer"
-                                  className="flex items-start gap-2 p-2.5 rounded-xl border border-gray-200 bg-white hover:border-indigo-200 text-xs transition-all">
-                                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                                  <img src={`https://www.google.com/s2/favicons?domain=${s.domain}&sz=32`} alt="" width={14} height={14} className="rounded-sm mt-0.5 shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                                  <div className="min-w-0">
-                                    <p className="font-medium text-gray-700 leading-tight truncate">{s.title}</p>
-                                    <p className="text-gray-400 mt-0.5 truncate">{s.domain}</p>
+                      {expandedRow === r.keyword && (r.aiSources.length > 0 || aiResults.has(r.keyword)) && (() => {
+                        const ai = aiResults.get(r.keyword);
+                        const totalCols = 6 + (domain.trim() ? 2 : 0) + (aiResults.size > 0 ? 3 : 0);
+                        return (
+                          <tr>
+                            <td colSpan={totalCols} className="px-6 py-4 bg-indigo-50/30 border-b border-indigo-100">
+                              <div className="space-y-4">
+                                {r.aiSources.length > 0 && (
+                                  <div>
+                                    <p className="text-xs font-semibold text-indigo-600 mb-2 uppercase tracking-wide flex items-center gap-1.5">
+                                      <Bot size={12} /> Google AI Overview — {r.aiSources.length} fonti
+                                    </p>
+                                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                                      {r.aiSources.map((s, j) => (
+                                        <a key={j} href={s.url} target="_blank" rel="noopener noreferrer"
+                                          className="flex items-start gap-2 p-2.5 rounded-xl border border-gray-200 bg-white hover:border-indigo-200 text-xs transition-all">
+                                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                                          <img src={`https://www.google.com/s2/favicons?domain=${s.domain}&sz=32`} alt="" width={14} height={14} className="rounded-sm mt-0.5 shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                                          <div className="min-w-0">
+                                            <p className="font-medium text-gray-700 leading-tight truncate">{s.title}</p>
+                                            <p className="text-gray-400 mt-0.5 truncate">{s.domain}</p>
+                                          </div>
+                                        </a>
+                                      ))}
+                                    </div>
                                   </div>
-                                </a>
-                              ))}
-                            </div>
-                          </td>
-                        </tr>
-                      )}
+                                )}
+                                {ai && (
+                                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    {/* Gemini */}
+                                    <div>
+                                      <p className="text-xs font-semibold text-sky-600 mb-2 uppercase tracking-wide flex items-center gap-1.5">
+                                        <Bot size={12} /> Gemini {ai.geminiSources.length > 0 ? `— ${ai.geminiSources.length} fonti` : ""}
+                                      </p>
+                                      {ai.geminiSources.length === 0
+                                        ? <p className="text-xs text-gray-400 italic">Nessuna fonte citata</p>
+                                        : <div className="space-y-1.5">
+                                          {ai.geminiSources.map((url, j) => {
+                                            const d = clientExtractDomain(url);
+                                            return (
+                                              <a key={j} href={url} target="_blank" rel="noopener noreferrer"
+                                                className="flex items-center gap-2 p-2 rounded-lg border border-gray-200 bg-white hover:border-sky-200 text-xs transition-all">
+                                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                <img src={`https://www.google.com/s2/favicons?domain=${d}&sz=32`} alt="" width={12} height={12} className="rounded-sm shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                                                <span className="truncate text-gray-600">{d}</span>
+                                              </a>
+                                            );
+                                          })}
+                                        </div>
+                                      }
+                                    </div>
+                                    {/* Perplexity */}
+                                    <div>
+                                      <p className="text-xs font-semibold text-teal-600 mb-2 uppercase tracking-wide flex items-center gap-1.5">
+                                        <Bot size={12} /> Perplexity {ai.perplexitySources.length > 0 ? `— ${ai.perplexitySources.length} fonti` : ""}
+                                      </p>
+                                      {ai.perplexitySources.length === 0
+                                        ? <p className="text-xs text-gray-400 italic">Nessuna fonte citata</p>
+                                        : <div className="space-y-1.5">
+                                          {ai.perplexitySources.map((url, j) => {
+                                            const d = clientExtractDomain(url);
+                                            return (
+                                              <a key={j} href={url} target="_blank" rel="noopener noreferrer"
+                                                className="flex items-center gap-2 p-2 rounded-lg border border-gray-200 bg-white hover:border-teal-200 text-xs transition-all">
+                                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                <img src={`https://www.google.com/s2/favicons?domain=${d}&sz=32`} alt="" width={12} height={12} className="rounded-sm shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                                                <span className="truncate text-gray-600">{d}</span>
+                                              </a>
+                                            );
+                                          })}
+                                        </div>
+                                      }
+                                    </div>
+                                    {/* ChatGPT */}
+                                    <div>
+                                      <p className="text-xs font-semibold text-emerald-600 mb-2 uppercase tracking-wide flex items-center gap-1.5">
+                                        <Bot size={12} /> ChatGPT {ai.chatgptSources.length > 0 ? `— ${ai.chatgptSources.length} fonti` : ""}
+                                      </p>
+                                      {ai.chatgptSources.length === 0
+                                        ? <p className="text-xs text-gray-400 italic">Nessuna fonte citata</p>
+                                        : <div className="space-y-1.5">
+                                          {ai.chatgptSources.map((url, j) => {
+                                            const d = clientExtractDomain(url);
+                                            return (
+                                              <a key={j} href={url} target="_blank" rel="noopener noreferrer"
+                                                className="flex items-center gap-2 p-2 rounded-lg border border-gray-200 bg-white hover:border-emerald-200 text-xs transition-all">
+                                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                <img src={`https://www.google.com/s2/favicons?domain=${d}&sz=32`} alt="" width={12} height={12} className="rounded-sm shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                                                <span className="truncate text-gray-600">{d}</span>
+                                              </a>
+                                            );
+                                          })}
+                                        </div>
+                                      }
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })()}
                     </React.Fragment>
                   ))}
                 </tbody>
