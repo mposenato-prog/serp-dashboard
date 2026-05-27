@@ -27,6 +27,22 @@ function brandMentioned(text: string, brands: string[]): boolean {
 type CheckResult = { cited: boolean | null; mention: boolean | null; sources: string[] };
 const API_ERROR: CheckResult = { cited: null, mention: null, sources: [] };
 
+// Gemini grounding returns vertexaisearch.cloud.google.com/grounding-api-redirect/...
+// which are opaque proxy URLs. Follow the 302 to get the real URL.
+async function resolveRedirect(url: string): Promise<string> {
+  if (!url.includes("vertexaisearch.cloud.google.com")) return url;
+  try {
+    const res = await fetch(url, {
+      method: "HEAD",
+      redirect: "manual",
+      signal: AbortSignal.timeout(3000),
+    });
+    return res.headers.get("location") || url;
+  } catch {
+    return url;
+  }
+}
+
 // Module-level cache — survives warm serverless re-invocations
 let cachedGeminiModel: string | null = null;
 
@@ -111,12 +127,15 @@ async function checkGemini(
       const data = await res.json();
       const chunks: Array<{ web?: { uri?: string } }> =
         data.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-      const sources = chunks.map((c) => c.web?.uri).filter(Boolean) as string[];
+      const rawSources = chunks.map((c) => c.web?.uri).filter(Boolean) as string[];
       const responseText: string =
         data.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join(" ") || "";
 
+      // Resolve Vertex AI redirect URLs to actual domains in parallel
+      const sources = await Promise.all(rawSources.map(resolveRedirect));
+
       console.log(`[Gemini ${model}] "${keyword}" → ${sources.length} sources, domain="${domain}"`);
-      if (sources.length > 0) console.log("  sources:", sources.slice(0, 5));
+      if (sources.length > 0) console.log("  resolved sources:", sources.slice(0, 5));
 
       return {
         cited: sources.some((url) => domainMatches(url, domain)),
