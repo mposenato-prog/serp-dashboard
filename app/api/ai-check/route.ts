@@ -43,11 +43,16 @@ async function resolveRedirect(url: string): Promise<string> {
   }
 }
 
-// Module-level cache — survives warm serverless re-invocations
-let cachedGeminiModel: string | null = null;
+// Module-level cache — Promise ensures concurrent callers share one in-flight request
+let geminiModelPromise: Promise<string | null> | null = null;
 
 async function discoverGeminiModel(apiKey: string): Promise<string | null> {
-  if (cachedGeminiModel) return cachedGeminiModel;
+  if (geminiModelPromise) return geminiModelPromise;
+  geminiModelPromise = _fetchGeminiModel(apiKey);
+  return geminiModelPromise;
+}
+
+async function _fetchGeminiModel(apiKey: string): Promise<string | null> {
   try {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
@@ -70,14 +75,10 @@ async function discoverGeminiModel(apiKey: string): Promise<string | null> {
       const found = ids.find(id => id.includes(pref));
       if (found) {
         console.log("[Gemini] selected model:", found);
-        cachedGeminiModel = found;
         return found;
       }
     }
-    if (ids[0]) {
-      cachedGeminiModel = ids[0];
-      return ids[0];
-    }
+    if (ids[0]) return ids[0];
     return null;
   } catch (err) {
     console.error("[Gemini] ListModels exception:", err);
@@ -98,54 +99,44 @@ async function checkGemini(
       return API_ERROR;
     }
 
-    // Try googleSearchRetrieval first (forces search); fall back to google_search tool
-    const tools = [
-      [{ googleSearchRetrieval: { dynamicRetrievalConfig: { mode: "MODE_DYNAMIC", dynamicThreshold: 0 } } }],
-      [{ google_search: {} }],
-    ];
-
-    for (const tool of tools) {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: keyword }] }],
-            tools: tool,
-          }),
-          signal: AbortSignal.timeout(25000),
-        }
-      );
-
-      if (!res.ok) {
-        const errText = await res.text().catch(() => "(no body)");
-        console.warn(`[Gemini ${model}] ${res.status} with tool ${JSON.stringify(tool[0]).slice(0, 40)}:`, errText.slice(0, 200));
-        continue; // try next tool config
+    // Use google_search tool — googleSearchRetrieval returns 400 on newer models
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: keyword }] }],
+          tools: [{ google_search: {} }],
+        }),
+        signal: AbortSignal.timeout(25000),
       }
+    );
 
-      const data = await res.json();
-      const chunks: Array<{ web?: { uri?: string } }> =
-        data.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-      const rawSources = chunks.map((c) => c.web?.uri).filter(Boolean) as string[];
-      const responseText: string =
-        data.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join(" ") || "";
-
-      // Resolve Vertex AI redirect URLs to actual domains in parallel
-      const sources = await Promise.all(rawSources.map(resolveRedirect));
-
-      console.log(`[Gemini ${model}] "${keyword}" → ${sources.length} sources, domain="${domain}"`);
-      if (sources.length > 0) console.log("  resolved sources:", sources.slice(0, 5));
-
-      return {
-        cited: sources.some((url) => domainMatches(url, domain)),
-        mention: brandMentioned(responseText, brands),
-        sources,
-      };
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "(no body)");
+      console.warn(`[Gemini ${model}] ${res.status}:`, errText.slice(0, 200));
+      return API_ERROR;
     }
 
-    console.warn(`[Gemini ${model}] all tool configs failed`);
-    return API_ERROR;
+    const data = await res.json();
+    const chunks: Array<{ web?: { uri?: string } }> =
+      data.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    const rawSources = chunks.map((c) => c.web?.uri).filter(Boolean) as string[];
+    const responseText: string =
+      data.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join(" ") || "";
+
+    // Resolve Vertex AI redirect URLs to actual domains in parallel
+    const sources = await Promise.all(rawSources.map(resolveRedirect));
+
+    console.log(`[Gemini ${model}] "${keyword}" → ${sources.length} sources, domain="${domain}"`);
+    if (sources.length > 0) console.log("  resolved sources:", sources.slice(0, 5));
+
+    return {
+      cited: sources.some((url) => domainMatches(url, domain)),
+      mention: brandMentioned(responseText, brands),
+      sources,
+    };
   } catch (err) {
     console.error(`[Gemini] exception for "${keyword}":`, err);
     return API_ERROR;
