@@ -27,151 +27,108 @@ function brandMentioned(text: string, brands: string[]): boolean {
 type CheckResult = { cited: boolean | null; mention: boolean | null; sources: string[] };
 const API_ERROR: CheckResult = { cited: null, mention: null, sources: [] };
 
+// Module-level cache — survives warm serverless re-invocations
+let cachedGeminiModel: string | null = null;
+
+async function discoverGeminiModel(apiKey: string): Promise<string | null> {
+  if (cachedGeminiModel) return cachedGeminiModel;
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
+      { signal: AbortSignal.timeout(10000) }
+    );
+    if (!res.ok) {
+      console.warn("[Gemini] ListModels failed:", res.status);
+      return null;
+    }
+    const data = await res.json();
+    const models: Array<{ name: string; supportedGenerationMethods?: string[] }> = data.models || [];
+    const ids = models
+      .filter(m => m.supportedGenerationMethods?.includes("generateContent"))
+      .map(m => m.name.replace("models/", ""));
+    console.log("[Gemini] available generateContent models:", ids.join(", "));
+
+    // Prefer flash over pro, newer over older
+    const preference = ["2.5-flash", "2.0-flash", "2.5-pro", "1.5-flash", "1.5-pro", "flash", "pro"];
+    for (const pref of preference) {
+      const found = ids.find(id => id.includes(pref));
+      if (found) {
+        console.log("[Gemini] selected model:", found);
+        cachedGeminiModel = found;
+        return found;
+      }
+    }
+    if (ids[0]) {
+      cachedGeminiModel = ids[0];
+      return ids[0];
+    }
+    return null;
+  } catch (err) {
+    console.error("[Gemini] ListModels exception:", err);
+    return null;
+  }
+}
+
 async function checkGemini(
   keyword: string,
   domain: string,
   brands: string[],
   apiKey: string
 ): Promise<CheckResult> {
-  // Try gemini-1.5-flash with googleSearchRetrieval (forces search every time).
-  // If that returns 400 (e.g. not supported on this key), fall back to
-  // gemini-2.0-flash with google_search tool (searches when model decides to).
   try {
-    const body15 = JSON.stringify({
-      contents: [{ parts: [{ text: keyword }] }],
-      tools: [{
-        googleSearchRetrieval: {
-          dynamicRetrievalConfig: { mode: "MODE_DYNAMIC", dynamicThreshold: 0 },
-        },
-      }],
-    });
-
-    const res15 = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: body15,
-        signal: AbortSignal.timeout(20000),
-      }
-    );
-
-    if (!res15.ok) {
-      const errText = await res15.text().catch(() => "(no body)");
-      console.warn(`[Gemini 1.5-flash] ${res15.status} for "${keyword}":`, errText.slice(0, 300));
-      // Fall back to 2.0-flash google_search
-      return await checkGemini20Flash(keyword, domain, brands, apiKey);
-    }
-
-    const data15 = await res15.json();
-    const chunks15: Array<{ web?: { uri?: string } }> =
-      data15.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-    const sources15 = chunks15.map((c) => c.web?.uri).filter(Boolean) as string[];
-
-    console.log(`[Gemini 1.5-flash] "${keyword}" → ${sources15.length} sources, domain="${domain}"`);
-    if (sources15.length > 0) {
-      console.log(`  sources:`, sources15.slice(0, 5));
-    } else {
-      // Log full response shape to diagnose missing grounding
-      const keys = Object.keys(data15.candidates?.[0] || {});
-      console.log(`  no sources. candidate keys:`, keys);
-    }
-
-    const responseText15: string =
-      data15.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join(" ") || "";
-
-    return {
-      cited: sources15.some((url) => domainMatches(url, domain)),
-      mention: brandMentioned(responseText15, brands),
-      sources: sources15,
-    };
-  } catch (err) {
-    console.error(`[Gemini] exception for "${keyword}":`, err);
-    return API_ERROR;
-  }
-}
-
-async function checkGemini20Flash(
-  keyword: string,
-  domain: string,
-  brands: string[],
-  apiKey: string
-): Promise<CheckResult> {
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-001:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: keyword }] }],
-          tools: [{ google_search: {} }],
-        }),
-        signal: AbortSignal.timeout(20000),
-      }
-    );
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "(no body)");
-      console.warn(`[Gemini 2.0-flash-001] ${res.status} for "${keyword}":`, errText.slice(0, 300));
-      // Last resort: gemini-2.5-flash
-      return await checkGemini25Flash(keyword, domain, brands, apiKey);
-    }
-    const data = await res.json();
-    const chunks: Array<{ web?: { uri?: string } }> =
-      data.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-    const sources = chunks.map((c) => c.web?.uri).filter(Boolean) as string[];
-    console.log(`[Gemini 2.0-flash] "${keyword}" → ${sources.length} sources`);
-    const responseText: string =
-      data.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join(" ") || "";
-    return {
-      cited: sources.some((url) => domainMatches(url, domain)),
-      mention: brandMentioned(responseText, brands),
-      sources,
-    };
-  } catch (err) {
-    console.error(`[Gemini 2.0-flash] exception for "${keyword}":`, err);
-    return API_ERROR;
-  }
-}
-
-async function checkGemini25Flash(
-  keyword: string,
-  domain: string,
-  brands: string[],
-  apiKey: string
-): Promise<CheckResult> {
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: keyword }] }],
-          tools: [{ google_search: {} }],
-        }),
-        signal: AbortSignal.timeout(25000),
-      }
-    );
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "(no body)");
-      console.warn(`[Gemini 2.5-flash] ${res.status} for "${keyword}":`, errText.slice(0, 300));
+    const model = await discoverGeminiModel(apiKey);
+    if (!model) {
+      console.warn("[Gemini] no usable model found");
       return API_ERROR;
     }
-    const data = await res.json();
-    const chunks: Array<{ web?: { uri?: string } }> =
-      data.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-    const sources = chunks.map((c) => c.web?.uri).filter(Boolean) as string[];
-    console.log(`[Gemini 2.5-flash] "${keyword}" → ${sources.length} sources`);
-    const responseText: string =
-      data.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join(" ") || "";
-    return {
-      cited: sources.some((url) => domainMatches(url, domain)),
-      mention: brandMentioned(responseText, brands),
-      sources,
-    };
+
+    // Try googleSearchRetrieval first (forces search); fall back to google_search tool
+    const tools = [
+      [{ googleSearchRetrieval: { dynamicRetrievalConfig: { mode: "MODE_DYNAMIC", dynamicThreshold: 0 } } }],
+      [{ google_search: {} }],
+    ];
+
+    for (const tool of tools) {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: keyword }] }],
+            tools: tool,
+          }),
+          signal: AbortSignal.timeout(25000),
+        }
+      );
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "(no body)");
+        console.warn(`[Gemini ${model}] ${res.status} with tool ${JSON.stringify(tool[0]).slice(0, 40)}:`, errText.slice(0, 200));
+        continue; // try next tool config
+      }
+
+      const data = await res.json();
+      const chunks: Array<{ web?: { uri?: string } }> =
+        data.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+      const sources = chunks.map((c) => c.web?.uri).filter(Boolean) as string[];
+      const responseText: string =
+        data.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join(" ") || "";
+
+      console.log(`[Gemini ${model}] "${keyword}" → ${sources.length} sources, domain="${domain}"`);
+      if (sources.length > 0) console.log("  sources:", sources.slice(0, 5));
+
+      return {
+        cited: sources.some((url) => domainMatches(url, domain)),
+        mention: brandMentioned(responseText, brands),
+        sources,
+      };
+    }
+
+    console.warn(`[Gemini ${model}] all tool configs failed`);
+    return API_ERROR;
   } catch (err) {
-    console.error(`[Gemini 2.5-flash] exception for "${keyword}":`, err);
+    console.error(`[Gemini] exception for "${keyword}":`, err);
     return API_ERROR;
   }
 }
@@ -248,7 +205,7 @@ async function checkChatGPT(
       .filter(Boolean) as string[];
     const responseText: string = data.choices?.[0]?.message?.content || "";
     console.log(`[ChatGPT] "${keyword}" → ${sources.length} sources`);
-    if (sources.length > 0) console.log(`  sources:`, sources.slice(0, 5));
+    if (sources.length > 0) console.log("  sources:", sources.slice(0, 5));
     return {
       cited: sources.some((url) => domainMatches(url, domain)),
       mention: brandMentioned(responseText, brands),
