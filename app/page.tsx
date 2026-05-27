@@ -77,6 +77,54 @@ function Badge({ active, label }: { active: boolean; label: string }) {
   );
 }
 
+// Helper client-side
+function clientExtractDomain(url: string): string {
+  try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
+}
+
+// 3-state badge per Google AI Overview
+function GoogleAiBadge({ hasOverview, domainInAi, sourcesCount, onClick }: {
+  hasOverview: boolean; domainInAi: boolean; sourcesCount: number; onClick?: () => void;
+}) {
+  if (!hasOverview) return <span className="text-xs text-gray-300">Assente</span>;
+  if (domainInAi) return (
+    <button onClick={onClick} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-violet-100 text-violet-700 ring-1 ring-violet-200 hover:bg-violet-200 transition-colors">
+      <CheckCircle2 size={10} /> Citato · {sourcesCount} fonti
+    </button>
+  );
+  return (
+    <button onClick={onClick} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 ring-1 ring-amber-200 hover:bg-amber-200 transition-colors">
+      <AlertCircle size={10} /> Presente · non citato
+    </button>
+  );
+}
+
+// Copertura score — pallini per ogni piattaforma
+function AiCoverageScore({ r }: { r: KeywordResult }) {
+  const platforms = [
+    { label: "Google AI", value: r.hasAiOverview ? r.domainInAiSources : null, color: "bg-violet-400", na: !r.hasAiOverview },
+    { label: "Gemini", value: r.domainInGemini ?? null, color: "bg-sky-400", na: false },
+    { label: "Perplexity", value: r.domainInPerplexity ?? null, color: "bg-teal-400", na: false },
+    { label: "ChatGPT", value: r.domainInChatgpt ?? null, color: "bg-emerald-400", na: false },
+  ];
+  const cited = platforms.filter(p => p.value === true).length;
+  const checked = platforms.filter(p => p.value !== null && !p.na).length;
+  return (
+    <div className="flex items-center gap-1.5 justify-center">
+      {platforms.map((p, i) => (
+        <div key={i} title={p.label}
+          className={`w-2.5 h-2.5 rounded-full transition-all ${
+            p.na ? "bg-gray-100 border border-dashed border-gray-200" :
+            p.value === true ? p.color :
+            p.value === false ? "bg-gray-200" :
+            "bg-gray-100 border border-gray-200"
+          }`} />
+      ))}
+      {checked > 0 && <span className="text-xs text-gray-400 ml-0.5">{cited}/{checked}</span>}
+    </div>
+  );
+}
+
 function AiBadge({ value, platform }: { value: boolean | null | undefined; platform: "gemini" | "perplexity" | "chatgpt" }) {
   if (value === null || value === undefined) return <span className="text-gray-300 text-xs">—</span>;
   const colors = {
@@ -414,18 +462,21 @@ function ResultsTable({ results, domain, withAi, runs, prevResults, onAiCheck, a
   }
 
   function exportCSV() {
-    const aiCols = hasAiPlatformData ? ["Gemini", "Perplexity", "ChatGPT"] : [];
-    const header = ["Keyword", "AI Overview", "Dominio in Organico", "Posizione", "Dominio in AI", "Fonti AI", "Stato", ...aiCols].join(",");
-    const rows = results.map(r => [
-      `"${r.keyword}"`, r.hasAiOverview ? "Sì" : "No", r.domainInOrganic ? "Sì" : "No",
-      r.domainPosition ?? "-", r.domainInAiSources ? "Sì" : "No",
-      `"${r.aiSources.map(s => s.domain).join(" | ")}"`, r.status,
-      ...(hasAiPlatformData ? [
+    const header = ["Keyword", "Posizione SERP", "Google AI Overview", "Citato in Google AI", "Fonti Google AI", "Gemini", "Perplexity", "ChatGPT", "Stato"].join(",");
+    const rows = results.map(r => {
+      const googleAi = !r.hasAiOverview ? "Assente" : r.domainInAiSources ? "Citato" : "Presente";
+      return [
+        `"${r.keyword}"`,
+        r.domainPosition ? `#${r.domainPosition}` : "Non presente",
+        googleAi,
+        r.domainInAiSources ? "Sì" : "No",
+        `"${r.aiSources.map(s => s.domain).join(" | ")}"`,
         r.domainInGemini == null ? "—" : r.domainInGemini ? "Sì" : "No",
         r.domainInPerplexity == null ? "—" : r.domainInPerplexity ? "Sì" : "No",
         r.domainInChatgpt == null ? "—" : r.domainInChatgpt ? "Sì" : "No",
-      ] : []),
-    ].join(","));
+        r.status,
+      ].join(",");
+    });
     const csv = [header, ...rows].join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -465,19 +516,31 @@ function ResultsTable({ results, domain, withAi, runs, prevResults, onAiCheck, a
       {activeTab === "results" && (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+            <thead className="text-xs text-gray-500 uppercase tracking-wide border-b border-gray-100">
               <tr>
-                <th className="w-8 px-4 py-3"></th>
-                <th className="text-left px-4 py-3">Keyword</th>
-                <th className="text-center px-4 py-3">AI Overview</th>
-                <th className="text-center px-4 py-3">In organico</th>
-                <th className="text-center px-4 py-3">Posizione</th>
-                <th className="text-center px-4 py-3">In AI</th>
-                <th className="text-center px-4 py-3">Fonti AI</th>
-                <th className="text-center px-4 py-3 text-sky-600">Gemini</th>
-                <th className="text-center px-4 py-3 text-teal-600">Perplexity</th>
-                <th className="text-center px-4 py-3 text-emerald-600">ChatGPT</th>
-                {prevResults && prevResults.length > 0 && <th className="text-center px-4 py-3">VS Prec.</th>}
+                <th className="w-8 px-4 py-3 bg-gray-50"></th>
+                <th className="text-left px-4 py-3 bg-gray-50">Keyword</th>
+                {/* SERP */}
+                <th className="text-center px-4 py-3 bg-indigo-50 text-indigo-500 border-l border-indigo-100">
+                  <span className="flex items-center justify-center gap-1"><Search size={10} /> SERP</span>
+                </th>
+                {/* Google AI */}
+                <th className="text-center px-4 py-3 bg-violet-50 text-violet-500 border-l border-violet-100" colSpan={1}>
+                  <span className="flex items-center justify-center gap-1"><Bot size={10} /> Google AI Overview</span>
+                </th>
+                {/* AI Platforms */}
+                <th className="text-center px-4 py-3 bg-sky-50 text-sky-600 border-l border-sky-100">
+                  <span className="flex items-center justify-center gap-1">✦ Gemini</span>
+                </th>
+                <th className="text-center px-4 py-3 bg-teal-50 text-teal-600">
+                  <span className="flex items-center justify-center gap-1">✦ Perplexity</span>
+                </th>
+                <th className="text-center px-4 py-3 bg-emerald-50 text-emerald-600">
+                  <span className="flex items-center justify-center gap-1">✦ ChatGPT</span>
+                </th>
+                {/* Score */}
+                <th className="text-center px-4 py-3 bg-gray-50 border-l border-gray-100">Copertura</th>
+                {prevResults && prevResults.length > 0 && <th className="text-center px-4 py-3 bg-gray-50">VS Prec.</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -488,19 +551,35 @@ function ResultsTable({ results, domain, withAi, runs, prevResults, onAiCheck, a
                 const posPrev = prev?.domainPosition ?? null;
                 const posDelta = (posNow !== null && posPrev !== null) ? posPrev - posNow : null; // positive = improved
                 const hasDiff = aiChanged !== null || posDelta !== null;
+                const canExpand = r.hasAiOverview || (r.geminiSources?.length ?? 0) > 0 || (r.chatgptSources?.length ?? 0) > 0;
                 return (
                   <React.Fragment key={i}>
-                    <tr className={`hover:bg-gray-50 transition-colors ${r.hasAiOverview ? "cursor-pointer" : ""}`} onClick={() => r.hasAiOverview && toggleRow(i)}>
-                      <td className="px-4 py-3 text-gray-400">{r.hasAiOverview ? (expandedRows.has(i) ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : null}</td>
-                      <td className="px-4 py-3 font-medium text-gray-800">{r.keyword}</td>
-                      <td className="px-4 py-3 text-center"><Badge active={r.hasAiOverview} label={r.hasAiOverview ? "Sì" : "No"} /></td>
-                      <td className="px-4 py-3 text-center"><Badge active={r.domainInOrganic} label={r.domainInOrganic ? "Sì" : "No"} /></td>
-                      <td className="px-4 py-3 text-center">{r.domainPosition ? <span className="font-semibold text-indigo-600">#{r.domainPosition}</span> : <span className="text-gray-300">—</span>}</td>
-                      <td className="px-4 py-3 text-center"><Badge active={r.domainInAiSources} label={r.domainInAiSources ? "Sì" : "No"} /></td>
-                      <td className="px-4 py-3 text-center">{r.hasAiOverview ? <span className="font-medium text-violet-600">{r.aiSources.length} fonti</span> : <span className="text-gray-300">—</span>}</td>
-                      <td className="px-4 py-3 text-center"><AiBadge value={r.domainInGemini} platform="gemini" /></td>
-                      <td className="px-4 py-3 text-center"><AiBadge value={r.domainInPerplexity} platform="perplexity" /></td>
-                      <td className="px-4 py-3 text-center"><AiBadge value={r.domainInChatgpt} platform="chatgpt" /></td>
+                    <tr className={`hover:bg-gray-50/80 transition-colors border-b border-gray-50 ${canExpand ? "cursor-pointer" : ""}`} onClick={() => canExpand && toggleRow(i)}>
+                      <td className="px-4 py-3.5 text-gray-400">{canExpand ? (expandedRows.has(i) ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : null}</td>
+                      <td className="px-4 py-3.5 font-medium text-gray-800 max-w-[220px]">
+                        <span className="line-clamp-2 leading-snug">{r.keyword}</span>
+                      </td>
+                      {/* SERP */}
+                      <td className="px-4 py-3.5 text-center border-l border-indigo-50">
+                        {r.domainPosition
+                          ? <span className="inline-flex items-center gap-1 font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full text-sm">#{r.domainPosition}</span>
+                          : <span className="text-xs text-gray-300 bg-gray-50 px-2 py-0.5 rounded-full">Non presente</span>}
+                      </td>
+                      {/* Google AI Overview — 3 stati */}
+                      <td className="px-4 py-3.5 text-center border-l border-violet-50">
+                        <GoogleAiBadge
+                          hasOverview={r.hasAiOverview}
+                          domainInAi={r.domainInAiSources}
+                          sourcesCount={r.aiSources.length}
+                          onClick={r.hasAiOverview ? (e => { e.stopPropagation(); toggleRow(i); }) : undefined}
+                        />
+                      </td>
+                      {/* AI Platforms */}
+                      <td className="px-4 py-3.5 text-center border-l border-sky-50"><AiBadge value={r.domainInGemini} platform="gemini" /></td>
+                      <td className="px-4 py-3.5 text-center"><AiBadge value={r.domainInPerplexity} platform="perplexity" /></td>
+                      <td className="px-4 py-3.5 text-center"><AiBadge value={r.domainInChatgpt} platform="chatgpt" /></td>
+                      {/* Copertura */}
+                      <td className="px-4 py-3.5 text-center border-l border-gray-100"><AiCoverageScore r={r} /></td>
                       {prevResults && prevResults.length > 0 && (
                         <td className="px-4 py-3 text-center">
                           {!prev ? (
@@ -525,7 +604,82 @@ function ResultsTable({ results, domain, withAi, runs, prevResults, onAiCheck, a
                         </td>
                       )}
                     </tr>
-                    {expandedRows.has(i) && <SourcesRow sources={r.aiSources} trackedDomain={domain} colSpan={10 + (prevResults && prevResults.length > 0 ? 1 : 0)} />}
+                    {expandedRows.has(i) && (
+                      <tr>
+                        <td colSpan={8 + (prevResults && prevResults.length > 0 ? 1 : 0)} className="px-4 py-4 bg-slate-50/60 border-b border-slate-100">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            {/* Google AI Overview */}
+                            <div>
+                              <p className="text-xs font-semibold text-violet-600 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                                <Bot size={11} /> Google AI Overview {r.aiSources.length > 0 && <span className="text-violet-400 font-normal normal-case">· {r.aiSources.length} fonti</span>}
+                              </p>
+                              {r.aiSources.length === 0
+                                ? <p className="text-xs text-gray-400 italic">{r.hasAiOverview ? "Nessuna fonte estratta" : "AI Overview assente"}</p>
+                                : <div className="space-y-1 max-h-36 overflow-y-auto">
+                                  {r.aiSources.map((s, j) => {
+                                    const isMe = s.domain.includes(domain.replace(/^www\.|^https?:\/\//, ""));
+                                    return (
+                                      <a key={j} href={s.url} target="_blank" rel="noopener noreferrer"
+                                        className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs transition-colors ${isMe ? "bg-amber-50 text-amber-700 font-medium" : "bg-white text-gray-600 hover:bg-violet-50"}`}>
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img src={`https://www.google.com/s2/favicons?domain=${s.domain}&sz=16`} alt="" width={12} height={12} className="rounded-sm shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                                        <span className="truncate">{s.domain}</span>
+                                        {isMe && <span className="shrink-0 ml-auto text-amber-500">★</span>}
+                                      </a>
+                                    );
+                                  })}
+                                </div>}
+                            </div>
+                            {/* Gemini */}
+                            <div>
+                              <p className="text-xs font-semibold text-sky-600 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                                ✦ Gemini {(r.geminiSources?.length ?? 0) > 0 && <span className="text-sky-400 font-normal normal-case">· {r.geminiSources!.length} fonti</span>}
+                              </p>
+                              {(r.geminiSources?.length ?? 0) === 0
+                                ? <p className="text-xs text-gray-400 italic">{r.domainInGemini === null ? "Non ancora verificato" : "Nessuna fonte"}</p>
+                                : <div className="space-y-1 max-h-36 overflow-y-auto">
+                                  {r.geminiSources!.map((url, j) => {
+                                    const d = clientExtractDomain(url);
+                                    const isMe = d.includes(domain.replace(/^www\.|^https?:\/\//, ""));
+                                    return (
+                                      <a key={j} href={url} target="_blank" rel="noopener noreferrer"
+                                        className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs transition-colors ${isMe ? "bg-amber-50 text-amber-700 font-medium" : "bg-white text-gray-600 hover:bg-sky-50"}`}>
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img src={`https://www.google.com/s2/favicons?domain=${d}&sz=16`} alt="" width={12} height={12} className="rounded-sm shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                                        <span className="truncate">{d}</span>
+                                        {isMe && <span className="shrink-0 ml-auto text-amber-500">★</span>}
+                                      </a>
+                                    );
+                                  })}
+                                </div>}
+                            </div>
+                            {/* ChatGPT */}
+                            <div>
+                              <p className="text-xs font-semibold text-emerald-600 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                                ✦ ChatGPT {(r.chatgptSources?.length ?? 0) > 0 && <span className="text-emerald-400 font-normal normal-case">· {r.chatgptSources!.length} fonti</span>}
+                              </p>
+                              {(r.chatgptSources?.length ?? 0) === 0
+                                ? <p className="text-xs text-gray-400 italic">{r.domainInChatgpt === null ? "Non ancora verificato" : "Nessuna fonte"}</p>
+                                : <div className="space-y-1 max-h-36 overflow-y-auto">
+                                  {r.chatgptSources!.map((url, j) => {
+                                    const d = clientExtractDomain(url);
+                                    const isMe = d.includes(domain.replace(/^www\.|^https?:\/\//, ""));
+                                    return (
+                                      <a key={j} href={url} target="_blank" rel="noopener noreferrer"
+                                        className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs transition-colors ${isMe ? "bg-amber-50 text-amber-700 font-medium" : "bg-white text-gray-600 hover:bg-emerald-50"}`}>
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img src={`https://www.google.com/s2/favicons?domain=${d}&sz=16`} alt="" width={12} height={12} className="rounded-sm shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                                        <span className="truncate">{d}</span>
+                                        {isMe && <span className="shrink-0 ml-auto text-amber-500">★</span>}
+                                      </a>
+                                    );
+                                  })}
+                                </div>}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
                   </React.Fragment>
                 );
               })}
