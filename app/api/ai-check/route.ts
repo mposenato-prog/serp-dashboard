@@ -24,44 +24,112 @@ function brandMentioned(text: string, brands: string[]): boolean {
   return brands.some(b => b.trim() && lower.includes(b.trim().toLowerCase()));
 }
 
+type CheckResult = { cited: boolean | null; mention: boolean | null; sources: string[] };
+const API_ERROR: CheckResult = { cited: null, mention: null, sources: [] };
+
 async function checkGemini(
   keyword: string,
   domain: string,
   brands: string[],
   apiKey: string
-): Promise<{ cited: boolean; mention: boolean; sources: string[] }> {
+): Promise<CheckResult> {
+  // Try gemini-1.5-flash with googleSearchRetrieval (forces search every time).
+  // If that returns 400 (e.g. not supported on this key), fall back to
+  // gemini-2.0-flash with google_search tool (searches when model decides to).
   try {
-    // gemini-1.5-flash with googleSearchRetrieval guarantees a web search every time.
-    // gemini-2.0-flash with google_search tool only searches when the model decides to.
-    const res = await fetch(
+    const body15 = JSON.stringify({
+      contents: [{ parts: [{ text: keyword }] }],
+      tools: [{
+        googleSearchRetrieval: {
+          dynamicRetrievalConfig: { mode: "MODE_DYNAMIC", dynamicThreshold: 0 },
+        },
+      }],
+    });
+
+    const res15 = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: body15,
+        signal: AbortSignal.timeout(20000),
+      }
+    );
+
+    if (!res15.ok) {
+      const errText = await res15.text().catch(() => "(no body)");
+      console.warn(`[Gemini 1.5-flash] ${res15.status} for "${keyword}":`, errText.slice(0, 300));
+      // Fall back to 2.0-flash google_search
+      return await checkGemini20Flash(keyword, domain, brands, apiKey);
+    }
+
+    const data15 = await res15.json();
+    const chunks15: Array<{ web?: { uri?: string } }> =
+      data15.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    const sources15 = chunks15.map((c) => c.web?.uri).filter(Boolean) as string[];
+
+    console.log(`[Gemini 1.5-flash] "${keyword}" → ${sources15.length} sources, domain="${domain}"`);
+    if (sources15.length > 0) {
+      console.log(`  sources:`, sources15.slice(0, 5));
+    } else {
+      // Log full response shape to diagnose missing grounding
+      const keys = Object.keys(data15.candidates?.[0] || {});
+      console.log(`  no sources. candidate keys:`, keys);
+    }
+
+    const responseText15: string =
+      data15.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join(" ") || "";
+
+    return {
+      cited: sources15.some((url) => domainMatches(url, domain)),
+      mention: brandMentioned(responseText15, brands),
+      sources: sources15,
+    };
+  } catch (err) {
+    console.error(`[Gemini] exception for "${keyword}":`, err);
+    return API_ERROR;
+  }
+}
+
+async function checkGemini20Flash(
+  keyword: string,
+  domain: string,
+  brands: string[],
+  apiKey: string
+): Promise<CheckResult> {
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ parts: [{ text: keyword }] }],
-          tools: [{
-            googleSearchRetrieval: {
-              dynamicRetrievalConfig: { mode: "MODE_DYNAMIC", dynamicThreshold: 0 },
-            },
-          }],
+          tools: [{ google_search: {} }],
         }),
         signal: AbortSignal.timeout(20000),
       }
     );
-    if (!res.ok) return { cited: false, mention: false, sources: [] };
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "(no body)");
+      console.warn(`[Gemini 2.0-flash] ${res.status} for "${keyword}":`, errText.slice(0, 300));
+      return API_ERROR;
+    }
     const data = await res.json();
     const chunks: Array<{ web?: { uri?: string } }> =
       data.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
     const sources = chunks.map((c) => c.web?.uri).filter(Boolean) as string[];
-    const responseText: string = data.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join(" ") || "";
+    console.log(`[Gemini 2.0-flash] "${keyword}" → ${sources.length} sources`);
+    const responseText: string =
+      data.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join(" ") || "";
     return {
       cited: sources.some((url) => domainMatches(url, domain)),
       mention: brandMentioned(responseText, brands),
       sources,
     };
-  } catch {
-    return { cited: false, mention: false, sources: [] };
+  } catch (err) {
+    console.error(`[Gemini 2.0-flash] exception for "${keyword}":`, err);
+    return API_ERROR;
   }
 }
 
@@ -70,7 +138,7 @@ async function checkPerplexity(
   domain: string,
   brands: string[],
   apiKey: string
-): Promise<{ cited: boolean; mention: boolean; sources: string[] }> {
+): Promise<CheckResult> {
   try {
     const res = await fetch("https://api.perplexity.ai/chat/completions", {
       method: "POST",
@@ -84,17 +152,23 @@ async function checkPerplexity(
       }),
       signal: AbortSignal.timeout(20000),
     });
-    if (!res.ok) return { cited: false, mention: false, sources: [] };
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "(no body)");
+      console.warn(`[Perplexity] ${res.status} for "${keyword}":`, errText.slice(0, 300));
+      return API_ERROR;
+    }
     const data = await res.json();
     const sources: string[] = data.citations || [];
     const responseText: string = data.choices?.[0]?.message?.content || "";
+    console.log(`[Perplexity] "${keyword}" → ${sources.length} sources`);
     return {
       cited: sources.some((url) => domainMatches(url, domain)),
       mention: brandMentioned(responseText, brands),
       sources,
     };
-  } catch {
-    return { cited: false, mention: false, sources: [] };
+  } catch (err) {
+    console.error(`[Perplexity] exception for "${keyword}":`, err);
+    return API_ERROR;
   }
 }
 
@@ -103,7 +177,7 @@ async function checkChatGPT(
   domain: string,
   brands: string[],
   apiKey: string
-): Promise<{ cited: boolean; mention: boolean; sources: string[] }> {
+): Promise<CheckResult> {
   try {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -117,7 +191,11 @@ async function checkChatGPT(
       }),
       signal: AbortSignal.timeout(25000),
     });
-    if (!res.ok) return { cited: false, mention: false, sources: [] };
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "(no body)");
+      console.warn(`[ChatGPT] ${res.status} for "${keyword}":`, errText.slice(0, 300));
+      return API_ERROR;
+    }
     const data = await res.json();
     const annotations: Array<{ type: string; url_citation?: { url?: string } }> =
       data.choices?.[0]?.message?.annotations || [];
@@ -126,13 +204,16 @@ async function checkChatGPT(
       .map((a) => a.url_citation?.url)
       .filter(Boolean) as string[];
     const responseText: string = data.choices?.[0]?.message?.content || "";
+    console.log(`[ChatGPT] "${keyword}" → ${sources.length} sources`);
+    if (sources.length > 0) console.log(`  sources:`, sources.slice(0, 5));
     return {
       cited: sources.some((url) => domainMatches(url, domain)),
       mention: brandMentioned(responseText, brands),
       sources,
     };
-  } catch {
-    return { cited: false, mention: false, sources: [] };
+  } catch (err) {
+    console.error(`[ChatGPT] exception for "${keyword}":`, err);
+    return API_ERROR;
   }
 }
 
@@ -165,6 +246,8 @@ export async function POST(req: NextRequest) {
   const geminiKey = process.env.GEMINI_API_KEY;
   const perplexityKey = process.env.PERPLEXITY_API_KEY;
   const openaiKey = process.env.OPENAI_API_KEY;
+
+  console.log(`[ai-check] keys present: gemini=${!!geminiKey} perplexity=${!!perplexityKey} openai=${!!openaiKey}`);
 
   const results: AiPlatformResult[] = [];
   const CONCURRENCY = 3;
