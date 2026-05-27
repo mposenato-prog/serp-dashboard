@@ -612,7 +612,7 @@ function ResultsTable({ results, domain, withAi, runs, prevResults, onAiCheck, a
                           hasOverview={r.hasAiOverview}
                           domainInAi={r.domainInAiSources}
                           sourcesCount={r.aiSources.length}
-                          onClick={r.hasAiOverview ? (e => { e.stopPropagation(); toggleRow(i); }) : undefined}
+                          onClick={r.hasAiOverview ? () => toggleRow(i) : undefined}
                         />
                       </td>
                       {/* AI Platforms */}
