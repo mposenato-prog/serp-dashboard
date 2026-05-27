@@ -47,7 +47,7 @@ async function checkGemini(
     });
 
     const res15 = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -99,7 +99,7 @@ async function checkGemini20Flash(
 ): Promise<CheckResult> {
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-001:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -112,8 +112,9 @@ async function checkGemini20Flash(
     );
     if (!res.ok) {
       const errText = await res.text().catch(() => "(no body)");
-      console.warn(`[Gemini 2.0-flash] ${res.status} for "${keyword}":`, errText.slice(0, 300));
-      return API_ERROR;
+      console.warn(`[Gemini 2.0-flash-001] ${res.status} for "${keyword}":`, errText.slice(0, 300));
+      // Last resort: gemini-2.5-flash
+      return await checkGemini25Flash(keyword, domain, brands, apiKey);
     }
     const data = await res.json();
     const chunks: Array<{ web?: { uri?: string } }> =
@@ -129,6 +130,48 @@ async function checkGemini20Flash(
     };
   } catch (err) {
     console.error(`[Gemini 2.0-flash] exception for "${keyword}":`, err);
+    return API_ERROR;
+  }
+}
+
+async function checkGemini25Flash(
+  keyword: string,
+  domain: string,
+  brands: string[],
+  apiKey: string
+): Promise<CheckResult> {
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: keyword }] }],
+          tools: [{ google_search: {} }],
+        }),
+        signal: AbortSignal.timeout(25000),
+      }
+    );
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "(no body)");
+      console.warn(`[Gemini 2.5-flash] ${res.status} for "${keyword}":`, errText.slice(0, 300));
+      return API_ERROR;
+    }
+    const data = await res.json();
+    const chunks: Array<{ web?: { uri?: string } }> =
+      data.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    const sources = chunks.map((c) => c.web?.uri).filter(Boolean) as string[];
+    console.log(`[Gemini 2.5-flash] "${keyword}" → ${sources.length} sources`);
+    const responseText: string =
+      data.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join(" ") || "";
+    return {
+      cited: sources.some((url) => domainMatches(url, domain)),
+      mention: brandMentioned(responseText, brands),
+      sources,
+    };
+  } catch (err) {
+    console.error(`[Gemini 2.5-flash] exception for "${keyword}":`, err);
     return API_ERROR;
   }
 }
