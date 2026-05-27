@@ -31,6 +31,7 @@ interface Project {
   location: string;
   language: string;
   keywords: string;
+  brands: string;
   created_at: string;
 }
 
@@ -101,43 +102,73 @@ function GoogleAiBadge({ hasOverview, domainInAi, sourcesCount, onClick }: {
 
 // Copertura score — pallini per ogni piattaforma
 function AiCoverageScore({ r }: { r: KeywordResult }) {
+  // cited=true → pieno, mention=true → semitrasparente, false → grigio, null → tratteggiato
   const platforms = [
-    { label: "Google AI", value: r.hasAiOverview ? r.domainInAiSources : null, color: "bg-violet-400", na: !r.hasAiOverview },
-    { label: "Gemini", value: r.domainInGemini ?? null, color: "bg-sky-400", na: false },
-    { label: "Perplexity", value: r.domainInPerplexity ?? null, color: "bg-teal-400", na: false },
-    { label: "ChatGPT", value: r.domainInChatgpt ?? null, color: "bg-emerald-400", na: false },
+    { label: "Google AI (citato con link)", cited: r.hasAiOverview ? r.domainInAiSources : null, mention: false, color: "bg-violet-500", mentionColor: "bg-violet-200", na: !r.hasAiOverview },
+    { label: "Gemini", cited: r.domainInGemini ?? null, mention: r.geminiMention ?? null, color: "bg-sky-500", mentionColor: "bg-sky-200", na: false },
+    { label: "Perplexity", cited: r.domainInPerplexity ?? null, mention: r.perplexityMention ?? null, color: "bg-teal-500", mentionColor: "bg-teal-200", na: false },
+    { label: "ChatGPT", cited: r.domainInChatgpt ?? null, mention: r.chatgptMention ?? null, color: "bg-emerald-500", mentionColor: "bg-emerald-200", na: false },
   ];
-  const cited = platforms.filter(p => p.value === true).length;
-  const checked = platforms.filter(p => p.value !== null && !p.na).length;
+  const withLink = platforms.filter(p => p.cited === true).length;
+  const withMention = platforms.filter(p => p.cited === false && p.mention === true).length;
+  const checked = platforms.filter(p => p.cited !== null && !p.na).length;
   return (
     <div className="flex items-center gap-1.5 justify-center">
       {platforms.map((p, i) => (
         <div key={i} title={p.label}
           className={`w-2.5 h-2.5 rounded-full transition-all ${
             p.na ? "bg-gray-100 border border-dashed border-gray-200" :
-            p.value === true ? p.color :
-            p.value === false ? "bg-gray-200" :
+            p.cited === true ? p.color :
+            p.mention === true ? p.mentionColor :
+            p.cited === false ? "bg-gray-200" :
             "bg-gray-100 border border-gray-200"
           }`} />
       ))}
-      {checked > 0 && <span className="text-xs text-gray-400 ml-0.5">{cited}/{checked}</span>}
+      {checked > 0 && (
+        <span className="text-xs text-gray-400 ml-0.5">
+          {withLink > 0 && <span className="text-emerald-600 font-medium">{withLink}↗</span>}
+          {withMention > 0 && <span className="text-amber-500 font-medium ml-0.5">{withMention}💬</span>}
+          {withLink === 0 && withMention === 0 && "0"}
+          <span className="text-gray-300">/{checked}</span>
+        </span>
+      )}
     </div>
   );
 }
 
-function AiBadge({ value, platform }: { value: boolean | null | undefined; platform: "gemini" | "perplexity" | "chatgpt" }) {
-  if (value === null || value === undefined) return <span className="text-gray-300 text-xs">—</span>;
-  const colors = {
-    gemini: value ? "bg-sky-100 text-sky-700 ring-1 ring-sky-200" : "bg-gray-100 text-gray-400",
-    perplexity: value ? "bg-teal-100 text-teal-700 ring-1 ring-teal-200" : "bg-gray-100 text-gray-400",
-    chatgpt: value ? "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200" : "bg-gray-100 text-gray-400",
+// 3-state: Con link / Solo menzione / Non citato / — (non verificato)
+function AiPresenceBadge({ cited, mention, platform }: {
+  cited: boolean | null | undefined;
+  mention: boolean | null | undefined;
+  platform: "gemini" | "perplexity" | "chatgpt";
+}) {
+  if (cited === null || cited === undefined) return <span className="text-gray-300 text-xs">—</span>;
+  const platformColors = {
+    gemini: { link: "bg-sky-100 text-sky-700 ring-1 ring-sky-200", mention: "bg-sky-50 text-sky-500 ring-1 ring-sky-100", absent: "bg-gray-100 text-gray-400" },
+    perplexity: { link: "bg-teal-100 text-teal-700 ring-1 ring-teal-200", mention: "bg-teal-50 text-teal-500 ring-1 ring-teal-100", absent: "bg-gray-100 text-gray-400" },
+    chatgpt: { link: "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200", mention: "bg-emerald-50 text-emerald-500 ring-1 ring-emerald-100", absent: "bg-gray-100 text-gray-400" },
   };
-  return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${colors[platform]}`}>
-      {value ? <CheckCircle2 size={10} /> : <XCircle size={10} />}
-      {value ? "Sì" : "No"}
+  const c = platformColors[platform];
+  if (cited) return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${c.link}`}>
+      <CheckCircle2 size={10} /> Con link
     </span>
   );
+  if (mention) return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${c.mention}`}>
+      <AlertCircle size={10} /> Menzione
+    </span>
+  );
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${c.absent}`}>
+      <XCircle size={10} /> Non citato
+    </span>
+  );
+}
+
+// Legacy — kept for SearchView
+function AiBadge({ value, platform }: { value: boolean | null | undefined; platform: "gemini" | "perplexity" | "chatgpt" }) {
+  return <AiPresenceBadge cited={value} mention={undefined} platform={platform} />;
 }
 
 function SourcesRow({ sources, trackedDomain, colSpan = 7 }: { sources: AiSource[]; trackedDomain: string; colSpan?: number }) {
@@ -202,6 +233,7 @@ function NewProjectModal({ onClose, onSave }: { onClose: () => void; onSave: (p:
   const [domain, setDomain] = useState("");
   const [locationIdx, setLocationIdx] = useState(0);
   const [keywords, setKeywords] = useState("");
+  const [brands, setBrands] = useState("");
   const [saving, setSaving] = useState(false);
 
   async function handleSave() {
@@ -215,6 +247,7 @@ function NewProjectModal({ onClose, onSave }: { onClose: () => void; onSave: (p:
         location: LOCATION_OPTIONS[locationIdx].gl,
         language: LOCATION_OPTIONS[locationIdx].hl,
         keywords: keywords.split("\n").map(k => k.trim()).filter(Boolean),
+        brands: brands.split("\n").map(b => b.trim()).filter(Boolean),
       }),
     });
     const data = await res.json();
@@ -240,6 +273,14 @@ function NewProjectModal({ onClose, onSave }: { onClose: () => void; onSave: (p:
             <select className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-400" value={locationIdx} onChange={e => setLocationIdx(Number(e.target.value))}>
               {LOCATION_OPTIONS.map((o, i) => <option key={i} value={i}>{o.label}</option>)}
             </select>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide block mb-1">
+              Brand names <span className="normal-case font-normal text-gray-400">— per check menzione AI (uno per riga)</span>
+            </label>
+            <textarea className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-400 font-mono resize-none" rows={3}
+              placeholder={"Piscine Interrate\nPiscineInterrate\natlante.energy"} value={brands} onChange={e => setBrands(e.target.value)} />
+            <p className="text-xs text-gray-400 mt-1">Aggiungi varianti del nome (con/senza .it, acronimi, ecc.)</p>
           </div>
           <div>
             <label className="text-xs font-medium text-gray-500 uppercase tracking-wide block mb-1">Keywords (una per riga)</label>
@@ -575,9 +616,9 @@ function ResultsTable({ results, domain, withAi, runs, prevResults, onAiCheck, a
                         />
                       </td>
                       {/* AI Platforms */}
-                      <td className="px-4 py-3.5 text-center border-l border-sky-50"><AiBadge value={r.domainInGemini} platform="gemini" /></td>
-                      <td className="px-4 py-3.5 text-center"><AiBadge value={r.domainInPerplexity} platform="perplexity" /></td>
-                      <td className="px-4 py-3.5 text-center"><AiBadge value={r.domainInChatgpt} platform="chatgpt" /></td>
+                      <td className="px-4 py-3.5 text-center border-l border-sky-50"><AiPresenceBadge cited={r.domainInGemini} mention={r.geminiMention} platform="gemini" /></td>
+                      <td className="px-4 py-3.5 text-center"><AiPresenceBadge cited={r.domainInPerplexity} mention={r.perplexityMention} platform="perplexity" /></td>
+                      <td className="px-4 py-3.5 text-center"><AiPresenceBadge cited={r.domainInChatgpt} mention={r.chatgptMention} platform="chatgpt" /></td>
                       {/* Copertura */}
                       <td className="px-4 py-3.5 text-center border-l border-gray-100"><AiCoverageScore r={r} /></td>
                       {prevResults && prevResults.length > 0 && (
@@ -1121,7 +1162,7 @@ export default function Dashboard() {
   }, []);
 
   async function selectProject(p: Project) {
-    setSelectedProject(p);
+    setSelectedProject({ ...p, brands: p.brands || "[]" });
     setKeywordsRaw(JSON.parse(p.keywords).join("\n"));
     setSelectedRun(null);
     setRunResults([]);
@@ -1230,10 +1271,11 @@ export default function Dashboard() {
     for (let i = 0; i < keywords.length; i += BATCH) {
       const batch = keywords.slice(i, i + BATCH);
       try {
+        const projectBrands: string[] = (() => { try { return JSON.parse(selectedProject.brands || "[]"); } catch { return []; } })();
         const res = await fetch("/api/ai-check", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ keywords: batch, domain: selectedProject.domain }),
+          body: JSON.stringify({ keywords: batch, domain: selectedProject.domain, brands: projectBrands }),
         });
         if (res.ok) {
           const data = await res.json();
@@ -1251,6 +1293,9 @@ export default function Dashboard() {
         domainInGemini: ai.gemini,
         domainInPerplexity: ai.perplexity,
         domainInChatgpt: ai.chatgpt,
+        geminiMention: ai.geminiMention,
+        perplexityMention: ai.perplexityMention,
+        chatgptMention: ai.chatgptMention,
         geminiSources: ai.geminiSources,
         perplexitySources: ai.perplexitySources,
         chatgptSources: ai.chatgptSources,

@@ -19,6 +19,9 @@ export interface KeywordResult {
   domainInGemini?: boolean | null;
   domainInPerplexity?: boolean | null;
   domainInChatgpt?: boolean | null;
+  geminiMention?: boolean | null;
+  perplexityMention?: boolean | null;
+  chatgptMention?: boolean | null;
   geminiSources?: string[];
   perplexitySources?: string[];
   chatgptSources?: string[];

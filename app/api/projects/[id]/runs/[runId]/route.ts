@@ -42,6 +42,9 @@ export async function GET(
         domainInGemini: kw.domain_in_gemini ?? null,
         domainInPerplexity: kw.domain_in_perplexity ?? null,
         domainInChatgpt: kw.domain_in_chatgpt ?? null,
+        geminiMention: kw.gemini_mention ?? null,
+        perplexityMention: kw.perplexity_mention ?? null,
+        chatgptMention: kw.chatgpt_mention ?? null,
         geminiSources: aiSrcs.filter((s) => s.platform === "gemini").map((s) => s.url),
         perplexitySources: aiSrcs.filter((s) => s.platform === "perplexity").map((s) => s.url),
         chatgptSources: aiSrcs.filter((s) => s.platform === "chatgpt").map((s) => s.url),
@@ -65,7 +68,10 @@ export async function PATCH(
       UPDATE keyword_results SET
         domain_in_gemini = ${r.gemini},
         domain_in_perplexity = ${r.perplexity},
-        domain_in_chatgpt = ${r.chatgpt}
+        domain_in_chatgpt = ${r.chatgpt},
+        gemini_mention = ${r.geminiMention ?? null},
+        perplexity_mention = ${r.perplexityMention ?? null},
+        chatgpt_mention = ${r.chatgptMention ?? null}
       WHERE run_id = ${runId} AND keyword = ${r.keyword}
     `;
 

@@ -18,11 +18,18 @@ function domainMatches(url: string, domain: string): boolean {
   }
 }
 
+function brandMentioned(text: string, brands: string[]): boolean {
+  if (!brands.length || !text) return false;
+  const lower = text.toLowerCase();
+  return brands.some(b => b.trim() && lower.includes(b.trim().toLowerCase()));
+}
+
 async function checkGemini(
   keyword: string,
   domain: string,
+  brands: string[],
   apiKey: string
-): Promise<{ cited: boolean; sources: string[] }> {
+): Promise<{ cited: boolean; mention: boolean; sources: string[] }> {
   try {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
@@ -36,22 +43,28 @@ async function checkGemini(
         signal: AbortSignal.timeout(20000),
       }
     );
-    if (!res.ok) return { cited: false, sources: [] };
+    if (!res.ok) return { cited: false, mention: false, sources: [] };
     const data = await res.json();
     const chunks: Array<{ web?: { uri?: string } }> =
       data.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
     const sources = chunks.map((c) => c.web?.uri).filter(Boolean) as string[];
-    return { cited: sources.some((url) => domainMatches(url, domain)), sources };
+    const responseText: string = data.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join(" ") || "";
+    return {
+      cited: sources.some((url) => domainMatches(url, domain)),
+      mention: brandMentioned(responseText, brands),
+      sources,
+    };
   } catch {
-    return { cited: false, sources: [] };
+    return { cited: false, mention: false, sources: [] };
   }
 }
 
 async function checkPerplexity(
   keyword: string,
   domain: string,
+  brands: string[],
   apiKey: string
-): Promise<{ cited: boolean; sources: string[] }> {
+): Promise<{ cited: boolean; mention: boolean; sources: string[] }> {
   try {
     const res = await fetch("https://api.perplexity.ai/chat/completions", {
       method: "POST",
@@ -65,20 +78,26 @@ async function checkPerplexity(
       }),
       signal: AbortSignal.timeout(20000),
     });
-    if (!res.ok) return { cited: false, sources: [] };
+    if (!res.ok) return { cited: false, mention: false, sources: [] };
     const data = await res.json();
     const sources: string[] = data.citations || [];
-    return { cited: sources.some((url) => domainMatches(url, domain)), sources };
+    const responseText: string = data.choices?.[0]?.message?.content || "";
+    return {
+      cited: sources.some((url) => domainMatches(url, domain)),
+      mention: brandMentioned(responseText, brands),
+      sources,
+    };
   } catch {
-    return { cited: false, sources: [] };
+    return { cited: false, mention: false, sources: [] };
   }
 }
 
 async function checkChatGPT(
   keyword: string,
   domain: string,
+  brands: string[],
   apiKey: string
-): Promise<{ cited: boolean; sources: string[] }> {
+): Promise<{ cited: boolean; mention: boolean; sources: string[] }> {
   try {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -92,7 +111,7 @@ async function checkChatGPT(
       }),
       signal: AbortSignal.timeout(25000),
     });
-    if (!res.ok) return { cited: false, sources: [] };
+    if (!res.ok) return { cited: false, mention: false, sources: [] };
     const data = await res.json();
     const annotations: Array<{ type: string; url_citation?: { url?: string } }> =
       data.choices?.[0]?.message?.annotations || [];
@@ -100,26 +119,34 @@ async function checkChatGPT(
       .filter((a) => a.type === "url_citation")
       .map((a) => a.url_citation?.url)
       .filter(Boolean) as string[];
-    return { cited: sources.some((url) => domainMatches(url, domain)), sources };
+    const responseText: string = data.choices?.[0]?.message?.content || "";
+    return {
+      cited: sources.some((url) => domainMatches(url, domain)),
+      mention: brandMentioned(responseText, brands),
+      sources,
+    };
   } catch {
-    return { cited: false, sources: [] };
+    return { cited: false, mention: false, sources: [] };
   }
 }
 
 export interface AiPlatformResult {
   keyword: string;
   gemini: boolean | null;
+  geminiMention: boolean | null;
   geminiSources: string[];
   perplexity: boolean | null;
+  perplexityMention: boolean | null;
   perplexitySources: string[];
   chatgpt: boolean | null;
+  chatgptMention: boolean | null;
   chatgptSources: string[];
 }
 
 export { extractDomain };
 
 export async function POST(req: NextRequest) {
-  const { keywords, domain }: { keywords: string[]; domain: string } =
+  const { keywords, domain, brands = [] }: { keywords: string[]; domain: string; brands?: string[] } =
     await req.json();
 
   if (!keywords?.length || !domain) {
@@ -141,23 +168,20 @@ export async function POST(req: NextRequest) {
     const chunkResults = await Promise.all(
       chunk.map(async (keyword) => {
         const [gemini, perplexity, chatgpt] = await Promise.all([
-          geminiKey
-            ? checkGemini(keyword, domain, geminiKey)
-            : Promise.resolve(null),
-          perplexityKey
-            ? checkPerplexity(keyword, domain, perplexityKey)
-            : Promise.resolve(null),
-          openaiKey
-            ? checkChatGPT(keyword, domain, openaiKey)
-            : Promise.resolve(null),
+          geminiKey ? checkGemini(keyword, domain, brands, geminiKey) : Promise.resolve(null),
+          perplexityKey ? checkPerplexity(keyword, domain, brands, perplexityKey) : Promise.resolve(null),
+          openaiKey ? checkChatGPT(keyword, domain, brands, openaiKey) : Promise.resolve(null),
         ]);
         return {
           keyword,
           gemini: gemini?.cited ?? null,
+          geminiMention: gemini?.mention ?? null,
           geminiSources: gemini?.sources ?? [],
           perplexity: perplexity?.cited ?? null,
+          perplexityMention: perplexity?.mention ?? null,
           perplexitySources: perplexity?.sources ?? [],
           chatgpt: chatgpt?.cited ?? null,
+          chatgptMention: chatgpt?.mention ?? null,
           chatgptSources: chatgpt?.sources ?? [],
         } satisfies AiPlatformResult;
       })

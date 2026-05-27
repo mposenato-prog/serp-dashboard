@@ -54,9 +54,14 @@ export async function ensureSchema() {
     )
   `;
 
+  await sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS brands TEXT NOT NULL DEFAULT '[]'`;
+
   await sql`ALTER TABLE keyword_results ADD COLUMN IF NOT EXISTS domain_in_gemini BOOLEAN`;
   await sql`ALTER TABLE keyword_results ADD COLUMN IF NOT EXISTS domain_in_perplexity BOOLEAN`;
   await sql`ALTER TABLE keyword_results ADD COLUMN IF NOT EXISTS domain_in_chatgpt BOOLEAN`;
+  await sql`ALTER TABLE keyword_results ADD COLUMN IF NOT EXISTS gemini_mention BOOLEAN`;
+  await sql`ALTER TABLE keyword_results ADD COLUMN IF NOT EXISTS perplexity_mention BOOLEAN`;
+  await sql`ALTER TABLE keyword_results ADD COLUMN IF NOT EXISTS chatgpt_mention BOOLEAN`;
 
   await sql`
     CREATE TABLE IF NOT EXISTS ai_platform_sources (

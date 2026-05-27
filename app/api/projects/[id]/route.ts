@@ -18,9 +18,10 @@ export async function PUT(
 ) {
   await ensureSchema();
   const { id } = await params;
-  const { name, domain, location, language, keywords } = await req.json();
+  const { name, domain, location, language, keywords, brands } = await req.json();
   const { rows } = await sql`
-    UPDATE projects SET name=${name}, domain=${domain}, location=${location}, language=${language}, keywords=${JSON.stringify(keywords || [])}
+    UPDATE projects SET name=${name}, domain=${domain}, location=${location}, language=${language},
+      keywords=${JSON.stringify(keywords || [])}, brands=${JSON.stringify(brands || [])}
     WHERE id=${id} RETURNING *
   `;
   return NextResponse.json({ project: rows[0] });

@@ -9,13 +9,13 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   await ensureSchema();
-  const { name, domain, location, language, keywords } = await req.json();
+  const { name, domain, location, language, keywords, brands } = await req.json();
   if (!name || !domain) {
     return NextResponse.json({ error: "name and domain required" }, { status: 400 });
   }
   const { rows } = await sql`
-    INSERT INTO projects (name, domain, location, language, keywords)
-    VALUES (${name}, ${domain}, ${location || "it"}, ${language || "it"}, ${JSON.stringify(keywords || [])})
+    INSERT INTO projects (name, domain, location, language, keywords, brands)
+    VALUES (${name}, ${domain}, ${location || "it"}, ${language || "it"}, ${JSON.stringify(keywords || [])}, ${JSON.stringify(brands || [])})
     RETURNING *
   `;
   return NextResponse.json({ project: rows[0] });
