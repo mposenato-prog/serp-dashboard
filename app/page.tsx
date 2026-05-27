@@ -13,7 +13,7 @@ import type { SearchResult } from "./api/search/route";
 const ArticleGenerator = dynamic(() => import("./components/ArticleGenerator"), { ssr: false });
 import type { KeywordResult, AiSource } from "./api/analyze/route";
 import type { AiPlatformResult } from "./api/ai-check/route";
-import { TrendChart, PositionChart, AiDonut, TopSourcesChart, AiPresenceBreakdown } from "./components/Charts";
+import { TrendChart, PositionChart, AiDonut, TopSourcesChart, AiPresenceBreakdown, GeoTrendChart, GeoPlatformBar, GeoRadar } from "./components/Charts";
 
 const LOCATION_OPTIONS = [
   { label: "Italia", gl: "it", hl: "it" },
@@ -491,8 +491,29 @@ function ResultsTable({ results, domain, withAi, runs, prevResults, onAiCheck, a
 }) {
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
   const [activeTab, setActiveTab] = useState<"results" | "sources" | "charts">("results");
+  const [filter, setFilter] = useState<"all" | "overview" | "cited" | "opportunity">("all");
   const sourceRecap = computeSourceRecap(results);
   const hasAiPlatformData = results.some(r => r.domainInGemini !== null && r.domainInGemini !== undefined);
+
+  // Stats
+  const total = results.length;
+  const withOverview = results.filter(r => r.hasAiOverview).length;
+  const citedGoogleAi = results.filter(r => r.domainInAiSources).length;
+  const citedGemini = results.filter(r => r.domainInGemini === true).length;
+  const citedChatgpt = results.filter(r => r.domainInChatgpt === true).length;
+  const opportunities = results.filter(r => r.hasAiOverview && !r.domainInAiSources && !r.domainInGemini && !r.domainInChatgpt).length;
+  const checkedCount = results.filter(r => r.domainInGemini !== null && r.domainInGemini !== undefined).length;
+  const geoScore = checkedCount > 0
+    ? Math.round(((citedGoogleAi + citedGemini + citedChatgpt) / (3 * total)) * 100)
+    : null;
+
+  // Filtered results
+  const filteredResults = results.filter(r => {
+    if (filter === "overview") return r.hasAiOverview;
+    if (filter === "cited") return r.domainInAiSources || r.domainInGemini === true || r.domainInChatgpt === true;
+    if (filter === "opportunity") return r.hasAiOverview && !r.domainInAiSources && r.domainInGemini !== true && r.domainInChatgpt !== true;
+    return true;
+  });
 
   function toggleRow(i: number) {
     setExpandedRows(prev => {
@@ -526,6 +547,45 @@ function ResultsTable({ results, domain, withAi, runs, prevResults, onAiCheck, a
   }
 
   return (
+    <div className="space-y-4">
+      {/* GEO Summary Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        {geoScore !== null && (
+          <div className="col-span-2 md:col-span-1 lg:col-span-1 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-2xl p-4 text-white shadow-lg shadow-indigo-200">
+            <p className="text-xs font-semibold uppercase tracking-wider opacity-80">GEO Score</p>
+            <p className="text-4xl font-black mt-1">{geoScore}</p>
+            <p className="text-xs opacity-70 mt-0.5">su 100</p>
+          </div>
+        )}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+          <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider">AI Overview</p>
+          <p className="text-2xl font-bold text-violet-600 mt-1">{withOverview}</p>
+          <p className="text-xs text-gray-400 mt-0.5">{total ? Math.round((withOverview/total)*100) : 0}% keyword</p>
+        </div>
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+          <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider">Citato Google AI</p>
+          <p className="text-2xl font-bold text-violet-700 mt-1">{citedGoogleAi}</p>
+          <p className="text-xs text-gray-400 mt-0.5">{total ? Math.round((citedGoogleAi/total)*100) : 0}% keyword</p>
+        </div>
+        {hasAiPlatformData && <>
+          <div className="bg-white rounded-2xl border border-sky-100 shadow-sm p-4">
+            <p className="text-xs text-sky-500 font-semibold uppercase tracking-wider">Citato Gemini</p>
+            <p className="text-2xl font-bold text-sky-600 mt-1">{citedGemini}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{checkedCount ? Math.round((citedGemini/total)*100) : 0}% keyword</p>
+          </div>
+          <div className="bg-white rounded-2xl border border-emerald-100 shadow-sm p-4">
+            <p className="text-xs text-emerald-500 font-semibold uppercase tracking-wider">Citato ChatGPT</p>
+            <p className="text-2xl font-bold text-emerald-600 mt-1">{citedChatgpt}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{checkedCount ? Math.round((citedChatgpt/total)*100) : 0}% keyword</p>
+          </div>
+        </>}
+        <div className="bg-amber-50 rounded-2xl border border-amber-100 shadow-sm p-4">
+          <p className="text-xs text-amber-500 font-semibold uppercase tracking-wider">Opportunità</p>
+          <p className="text-2xl font-bold text-amber-600 mt-1">{opportunities}</p>
+          <p className="text-xs text-gray-400 mt-0.5">AI Overview senza citazione</p>
+        </div>
+      </div>
+
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
       <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
         <div className="flex gap-1">
@@ -536,7 +596,23 @@ function ResultsTable({ results, domain, withAi, runs, prevResults, onAiCheck, a
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Filter chips */}
+          {activeTab === "results" && (
+            <div className="flex gap-1 border border-gray-100 rounded-xl p-1 bg-gray-50">
+              {([
+                { key: "all", label: `Tutte (${total})` },
+                { key: "overview", label: `AI Overview (${withOverview})` },
+                { key: "cited", label: `Citate (${citedGoogleAi + citedGemini + citedChatgpt > 0 ? Math.max(citedGoogleAi, citedGemini, citedChatgpt) : citedGoogleAi})` },
+                { key: "opportunity", label: `Opportunità (${opportunities})` },
+              ] as const).map(f => (
+                <button key={f.key} onClick={() => setFilter(f.key)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${filter === f.key ? "bg-white shadow-sm text-indigo-700 border border-indigo-100" : "text-gray-500 hover:text-gray-700"}`}>
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          )}
           {onAiCheck && (
             <button
               onClick={onAiCheck}
@@ -585,7 +661,10 @@ function ResultsTable({ results, domain, withAi, runs, prevResults, onAiCheck, a
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {results.map((r, i) => {
+              {filteredResults.length === 0 && (
+                <tr><td colSpan={20} className="text-center py-12 text-sm text-gray-400">Nessuna keyword corrisponde al filtro selezionato.</td></tr>
+              )}
+              {filteredResults.map((r, i) => {
                 const prev = prevResults?.find(p => p.keyword === r.keyword);
                 const aiChanged = prev ? (r.hasAiOverview !== prev.hasAiOverview ? (r.hasAiOverview ? "gained" : "lost") : null) : null;
                 const posNow = r.domainPosition ?? null;
@@ -735,44 +814,63 @@ function ResultsTable({ results, domain, withAi, runs, prevResults, onAiCheck, a
 
       {activeTab === "charts" && (
         <div className="p-6 space-y-8">
-          {/* Trend storico */}
+          {/* GEO Trend storico — primary chart */}
           <div>
-            <h3 className="text-sm font-semibold text-gray-700 mb-1">Trend nel tempo</h3>
-            <p className="text-xs text-gray-400 mb-4">Evoluzione % AI Overview e visibilità dominio run per run</p>
-            <TrendChart runs={runs} />
+            <h3 className="text-sm font-semibold text-gray-700 mb-1">Trend visibilità AI nel tempo</h3>
+            <p className="text-xs text-gray-400 mb-4">% keyword in cui il dominio appare: Google AI Overview, Gemini, ChatGPT, Perplexity</p>
+            <GeoTrendChart runs={runs} />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            {/* GEO Platform bar */}
+            <div>
+              <h3 className="text-sm font-semibold text-gray-700 mb-1">Citation rate per piattaforma</h3>
+              <p className="text-xs text-gray-400 mb-4">% keyword citate con link (scuro) o solo menzionate (giallo)</p>
+              <GeoPlatformBar results={results} />
+            </div>
+
+            {/* GEO Radar or AiDonut */}
+            <div>
+              {hasAiPlatformData
+                ? <>
+                    <h3 className="text-sm font-semibold text-gray-700 mb-1">Visibilità GEO — radar</h3>
+                    <p className="text-xs text-gray-400 mb-4">% keyword in cui il dominio appare per canale</p>
+                    <GeoRadar results={results} />
+                  </>
+                : <>
+                    <h3 className="text-sm font-semibold text-gray-700 mb-1">Presenza AI Overview</h3>
+                    <p className="text-xs text-gray-400 mb-4">Quante keyword attivano l&apos;AI Overview di Google</p>
+                    <AiDonut results={results} />
+                  </>
+              }
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             {/* Distribuzione posizioni */}
             <div>
-              <h3 className="text-sm font-semibold text-gray-700 mb-1">Distribuzione posizioni</h3>
-              <p className="text-xs text-gray-400 mb-4">Quante keyword sono in top 3, 4–10 o non posizionate</p>
+              <h3 className="text-sm font-semibold text-gray-700 mb-1">Distribuzione posizioni organiche</h3>
+              <p className="text-xs text-gray-400 mb-4">Top 3 / 4–10 / non posizionato</p>
               <PositionChart results={results} />
             </div>
 
-            {/* AI Overview donut */}
+            {/* Presenza dominio nelle query con AI */}
             <div>
-              <h3 className="text-sm font-semibold text-gray-700 mb-1">Presenza AI Overview</h3>
-              <p className="text-xs text-gray-400 mb-4">Quante keyword attivano l&apos;AI Overview di Google</p>
-              <AiDonut results={results} />
+              <h3 className="text-sm font-semibold text-gray-700 mb-1">Breakdown su query con AI Overview</h3>
+              <p className="text-xs text-gray-400 mb-4">In AI + organico / solo organico / solo AI / assente</p>
+              <AiPresenceBreakdown results={results} />
             </div>
           </div>
 
-          {/* Presenza dominio nelle query con AI */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-700 mb-1">Breakdown dominio nelle query con AI Overview</h3>
-            <p className="text-xs text-gray-400 mb-4">Come appare il tuo dominio nelle keyword che attivano l&apos;AI Overview</p>
-            <AiPresenceBreakdown results={results} />
-          </div>
-
-          {/* Top fonti AI */}
+          {/* Top fonti AI competitor */}
           <div>
             <h3 className="text-sm font-semibold text-gray-700 mb-1">Top fonti citate in AI Overview</h3>
-            <p className="text-xs text-gray-400 mb-4">I domini più citati come fonti — <span className="text-amber-600 font-medium">giallo</span> = tuo dominio</p>
+            <p className="text-xs text-gray-400 mb-4">Domini più citati come fonti — <span className="text-amber-600 font-medium">giallo</span> = tuo dominio, <span className="text-indigo-600 font-medium">viola</span> = competitor</p>
             <TopSourcesChart results={results} trackedDomain={domain} />
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 }

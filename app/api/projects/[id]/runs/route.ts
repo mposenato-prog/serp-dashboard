@@ -9,7 +9,18 @@ export async function GET(
   await ensureSchema();
   const { id } = await params;
   const { rows } = await sql`
-    SELECT * FROM runs WHERE project_id = ${id} ORDER BY run_at DESC
+    SELECT r.*,
+      COUNT(CASE WHEN kr.domain_in_gemini = true THEN 1 END)::int      AS with_gemini,
+      COUNT(CASE WHEN kr.domain_in_perplexity = true THEN 1 END)::int  AS with_perplexity,
+      COUNT(CASE WHEN kr.domain_in_chatgpt = true THEN 1 END)::int     AS with_chatgpt,
+      COUNT(CASE WHEN kr.gemini_mention = true AND kr.domain_in_gemini IS NOT TRUE THEN 1 END)::int AS with_gemini_mention,
+      COUNT(CASE WHEN kr.chatgpt_mention = true AND kr.domain_in_chatgpt IS NOT TRUE THEN 1 END)::int AS with_chatgpt_mention,
+      COUNT(CASE WHEN kr.domain_in_gemini IS NOT NULL OR kr.domain_in_chatgpt IS NOT NULL THEN 1 END)::int AS ai_checked
+    FROM runs r
+    LEFT JOIN keyword_results kr ON kr.run_id = r.id
+    WHERE r.project_id = ${id}
+    GROUP BY r.id
+    ORDER BY r.run_at DESC
   `;
   return NextResponse.json({ runs: rows });
 }
