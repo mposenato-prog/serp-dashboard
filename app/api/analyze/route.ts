@@ -90,10 +90,17 @@ async function analyzeKeyword(
     let domainInAiSources = false;
 
     if (hasAiOverview && data.ai_overview) {
-      const rawSources: Array<{ title?: string; link?: string; url?: string }> =
+      let rawSources: Array<{ title?: string; link?: string; url?: string }> =
         data.ai_overview.sources ||
         data.ai_overview.references ||
         [];
+
+      // SerpApi sometimes embeds sources inside text_blocks[].references
+      if (rawSources.length === 0 && Array.isArray(data.ai_overview.text_blocks)) {
+        for (const block of data.ai_overview.text_blocks as Array<{ references?: Array<{ title?: string; link?: string }> }>) {
+          if (Array.isArray(block.references)) rawSources = [...rawSources, ...block.references];
+        }
+      }
 
       aiSources = rawSources
         .filter((s) => s.link || s.url)

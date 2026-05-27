@@ -31,14 +31,20 @@ async function checkGemini(
   apiKey: string
 ): Promise<{ cited: boolean; mention: boolean; sources: string[] }> {
   try {
+    // gemini-1.5-flash with googleSearchRetrieval guarantees a web search every time.
+    // gemini-2.0-flash with google_search tool only searches when the model decides to.
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ parts: [{ text: keyword }] }],
-          tools: [{ google_search: {} }],
+          tools: [{
+            googleSearchRetrieval: {
+              dynamicRetrievalConfig: { mode: "MODE_DYNAMIC", dynamicThreshold: 0 },
+            },
+          }],
         }),
         signal: AbortSignal.timeout(20000),
       }
