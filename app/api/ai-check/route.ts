@@ -18,10 +18,10 @@ function domainMatches(url: string, domain: string): boolean {
   }
 }
 
-function brandMentioned(text: string, brands: string[]): boolean {
-  if (!brands.length || !text) return false;
+function brandMentioned(text: string, brands: unknown): boolean {
+  if (!Array.isArray(brands) || !brands.length || !text) return false;
   const lower = text.toLowerCase();
-  return brands.some(b => b.trim() && lower.includes(b.trim().toLowerCase()));
+  return (brands as string[]).some(b => typeof b === "string" && b.trim() && lower.includes(b.trim().toLowerCase()));
 }
 
 type CheckResult = { cited: boolean | null; mention: boolean | null; sources: string[] };
@@ -199,7 +199,7 @@ async function checkChatGPT(
         model: "gpt-4o-search-preview",
         messages: [{ role: "user", content: keyword }],
       }),
-      signal: AbortSignal.timeout(25000),
+      signal: AbortSignal.timeout(35000),
     });
     if (!res.ok) {
       const errText = await res.text().catch(() => "(no body)");
@@ -243,8 +243,8 @@ export interface AiPlatformResult {
 export { extractDomain };
 
 export async function POST(req: NextRequest) {
-  const { keywords, domain, brands = [] }: { keywords: string[]; domain: string; brands?: string[] } =
-    await req.json();
+  const { keywords, domain, brands: rawBrands }: { keywords: string[]; domain: string; brands?: unknown } = await req.json();
+  const brands: string[] = Array.isArray(rawBrands) ? (rawBrands as string[]) : [];
 
   if (!keywords?.length || !domain) {
     return NextResponse.json(
