@@ -490,10 +490,34 @@ function ResultsTable({ results, domain, withAi, runs, prevResults, onAiCheck, a
   aiCheckProgress?: number;
 }) {
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
-  const [activeTab, setActiveTab] = useState<"results" | "sources" | "charts">("results");
+  const [activeTab, setActiveTab] = useState<"results" | "sources" | "charts" | "competitor">("results");
   const [filter, setFilter] = useState<"all" | "overview" | "cited" | "opportunity">("all");
+  const [expandedCompetitor, setExpandedCompetitor] = useState<string | null>(null);
   const sourceRecap = computeSourceRecap(results);
   const hasAiPlatformData = results.some(r => r.domainInGemini !== null && r.domainInGemini !== undefined);
+
+  // Competitor map: aggregate all AI source domains except own, per platform
+  const competitorMap = React.useMemo(() => {
+    const cleanDomain = domain.replace(/^www\./, "").replace(/^https?:\/\//, "");
+    const isOwn = (d: string) => d === cleanDomain || d.endsWith("." + cleanDomain) || d.includes(cleanDomain);
+    const map = new Map<string, { googleAi: number; gemini: number; chatgpt: number; perplexity: number; keywords: Set<string> }>();
+    const bump = (d: string, platform: "googleAi" | "gemini" | "chatgpt" | "perplexity", kw: string) => {
+      if (!d || isOwn(d)) return;
+      const e = map.get(d) ?? { googleAi: 0, gemini: 0, chatgpt: 0, perplexity: 0, keywords: new Set() };
+      e[platform]++;
+      e.keywords.add(kw);
+      map.set(d, e);
+    };
+    for (const r of results) {
+      for (const s of r.aiSources) bump(s.domain, "googleAi", r.keyword);
+      for (const url of r.geminiSources ?? []) bump(clientExtractDomain(url), "gemini", r.keyword);
+      for (const url of r.chatgptSources ?? []) bump(clientExtractDomain(url), "chatgpt", r.keyword);
+      for (const url of r.perplexitySources ?? []) bump(clientExtractDomain(url), "perplexity", r.keyword);
+    }
+    return Array.from(map.entries())
+      .map(([d, v]) => ({ domain: d, ...v, total: v.googleAi + v.gemini + v.chatgpt + v.perplexity, keywords: Array.from(v.keywords) }))
+      .sort((a, b) => b.total - a.total);
+  }, [results, domain]);
 
   // Stats
   const total = results.length;
@@ -589,10 +613,13 @@ function ResultsTable({ results, domain, withAi, runs, prevResults, onAiCheck, a
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
       <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
         <div className="flex gap-1">
-          {(["results", "sources", "charts"] as const).map(tab => (
+          {(["results", "sources", "competitor", "charts"] as const).map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)}
               className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${activeTab === tab ? "bg-indigo-600 text-white" : "text-gray-500 hover:text-gray-800"}`}>
-              {tab === "results" ? "Risultati" : tab === "sources" ? <>Fonti AI {sourceRecap.length > 0 && <span className="ml-1 bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full text-xs">{sourceRecap.length}</span>}</> : "📊 Grafici"}
+              {tab === "results" ? "Risultati"
+                : tab === "sources" ? <>Fonti AI {sourceRecap.length > 0 && <span className="ml-1 bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full text-xs">{sourceRecap.length}</span>}</>
+                : tab === "competitor" ? <>Competitor {competitorMap.length > 0 && <span className="ml-1 bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full text-xs">{competitorMap.length}</span>}</>
+                : "📊 Grafici"}
             </button>
           ))}
         </div>
@@ -810,6 +837,88 @@ function ResultsTable({ results, domain, withAi, runs, prevResults, onAiCheck, a
 
       {activeTab === "sources" && (
         <SourcesPanel results={results} domain={domain} withAi={withAi} sourceRecap={sourceRecap} />
+      )}
+
+      {activeTab === "competitor" && (
+        <div className="p-6">
+          {competitorMap.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-3">
+              <Bot size={32} className="opacity-20" />
+              <p className="text-sm">Nessun dato competitor. Esegui prima un&apos;analisi e poi Verifica AI.</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 mb-2">
+                <p className="text-sm text-gray-500">{competitorMap.length} domini citati nelle fonti AI al posto tuo — ordinati per frequenza totale</p>
+              </div>
+              <div className="overflow-x-auto rounded-xl border border-gray-100">
+                <table className="w-full text-sm">
+                  <thead className="bg-gradient-to-r from-slate-50 to-gray-50 text-xs text-gray-500 uppercase tracking-wider border-b border-gray-100">
+                    <tr>
+                      <th className="text-left px-4 py-3 font-semibold">Dominio</th>
+                      <th className="text-center px-4 py-3 font-semibold text-violet-600">Google AI</th>
+                      <th className="text-center px-4 py-3 font-semibold text-sky-600">Gemini</th>
+                      <th className="text-center px-4 py-3 font-semibold text-emerald-600">ChatGPT</th>
+                      <th className="text-center px-4 py-3 font-semibold text-teal-600">Perplexity</th>
+                      <th className="text-center px-4 py-3 font-semibold">Totale</th>
+                      <th className="text-center px-4 py-3 font-semibold">Keyword</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {competitorMap.map((c, i) => (
+                      <React.Fragment key={c.domain}>
+                        <tr
+                          className={`border-b border-gray-50 cursor-pointer transition-colors ${i % 2 === 0 ? "bg-white" : "bg-slate-50/40"} hover:bg-indigo-50/30`}
+                          onClick={() => setExpandedCompetitor(expandedCompetitor === c.domain ? null : c.domain)}
+                        >
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-300 w-5 shrink-0 font-mono">{i + 1}</span>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={`https://www.google.com/s2/favicons?domain=${c.domain}&sz=32`} alt="" width={16} height={16} className="rounded-sm shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                              <span className="font-medium text-gray-800 truncate max-w-[200px]">{c.domain}</span>
+                              {expandedCompetitor === c.domain ? <ChevronDown size={13} className="text-gray-400 shrink-0" /> : <ChevronRight size={13} className="text-gray-300 shrink-0" />}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            {c.googleAi > 0 ? <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-violet-100 text-violet-700 text-xs font-bold">{c.googleAi}</span> : <span className="text-gray-200">—</span>}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            {c.gemini > 0 ? <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-sky-100 text-sky-700 text-xs font-bold">{c.gemini}</span> : <span className="text-gray-200">—</span>}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            {c.chatgpt > 0 ? <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">{c.chatgpt}</span> : <span className="text-gray-200">—</span>}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            {c.perplexity > 0 ? <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-teal-100 text-teal-700 text-xs font-bold">{c.perplexity}</span> : <span className="text-gray-200">—</span>}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-full bg-gray-900 text-white text-xs font-bold min-w-[2rem]">{c.total}</span>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <span className="text-xs text-gray-500">{c.keywords.length} kw</span>
+                          </td>
+                        </tr>
+                        {expandedCompetitor === c.domain && (
+                          <tr>
+                            <td colSpan={7} className="px-6 py-3 bg-indigo-50/30 border-b border-indigo-100">
+                              <p className="text-xs font-semibold text-indigo-600 mb-2 uppercase tracking-wide">Query dove appare questo dominio:</p>
+                              <div className="flex flex-wrap gap-2">
+                                {c.keywords.map((kw, j) => (
+                                  <span key={j} className="inline-flex px-2.5 py-1 bg-white border border-indigo-100 rounded-full text-xs text-gray-700">{kw}</span>
+                                ))}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {activeTab === "charts" && (
