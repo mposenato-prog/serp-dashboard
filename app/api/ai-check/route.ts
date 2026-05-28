@@ -120,11 +120,13 @@ async function checkGemini(
     }
 
     const data = await res.json();
-    const chunks: Array<{ web?: { uri?: string } }> =
-      data.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    const rawChunks = data.candidates?.[0]?.groundingMetadata?.groundingChunks;
+    const chunks: Array<{ web?: { uri?: string } }> = Array.isArray(rawChunks) ? rawChunks : [];
     const rawSources = chunks.map((c) => c.web?.uri).filter(Boolean) as string[];
-    const responseText: string =
-      data.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join(" ") || "";
+    const rawParts = data.candidates?.[0]?.content?.parts;
+    const responseText: string = Array.isArray(rawParts)
+      ? rawParts.map((p: { text?: string }) => p.text || "").join(" ")
+      : "";
 
     // Resolve Vertex AI redirect URLs to actual domains in parallel
     const sources = await Promise.all(rawSources.map(resolveRedirect));
@@ -168,7 +170,8 @@ async function checkPerplexity(
       return API_ERROR;
     }
     const data = await res.json();
-    const sources: string[] = data.citations || [];
+    const rawCitations = data.citations;
+    const sources: string[] = Array.isArray(rawCitations) ? rawCitations : [];
     const responseText: string = data.choices?.[0]?.message?.content || "";
     console.log(`[Perplexity] "${keyword}" → ${sources.length} sources`);
     return {
@@ -207,8 +210,9 @@ async function checkChatGPT(
       return API_ERROR;
     }
     const data = await res.json();
+    const rawAnnotations = data.choices?.[0]?.message?.annotations;
     const annotations: Array<{ type: string; url_citation?: { url?: string } }> =
-      data.choices?.[0]?.message?.annotations || [];
+      Array.isArray(rawAnnotations) ? rawAnnotations : [];
     const sources = annotations
       .filter((a) => a.type === "url_citation")
       .map((a) => a.url_citation?.url)

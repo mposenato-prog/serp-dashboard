@@ -3,18 +3,22 @@
 import React, { useState, useEffect, useCallback } from "react";
 import dynamic from "next/dynamic";
 import {
-  BarChart3, Bot, Globe, Search, CheckCircle2, XCircle,
+  Bot, Search, CheckCircle2, XCircle,
   AlertCircle, Download, Loader2, ChevronDown, ChevronRight,
   Link, Plus, Trash2, FolderOpen, Clock, ChevronLeft, Pencil,
-  Sparkles, Wand2,
+  Wand2, BarChart3, Sparkles,
 } from "lucide-react";
 import type { SearchResult } from "./api/search/route";
 
 const ArticleGenerator = dynamic(() => import("./components/ArticleGenerator"), { ssr: false });
 import type { KeywordResult, AiSource } from "./api/analyze/route";
 import type { AiPlatformResult } from "./api/ai-check/route";
-import { TrendChart, PositionChart, AiDonut, TopSourcesChart, AiPresenceBreakdown, GeoTrendChart, GeoPlatformBar, GeoRadar } from "./components/Charts";
+import {
+  TrendChart, PositionChart, AiDonut, TopSourcesChart,
+  AiPresenceBreakdown, GeoTrendChart, GeoPlatformBar, GeoRadar,
+} from "./components/Charts";
 
+// ── constants ─────────────────────────────────────────────────────────────────
 const LOCATION_OPTIONS = [
   { label: "Italia", gl: "it", hl: "it" },
   { label: "USA", gl: "us", hl: "en" },
@@ -24,186 +28,34 @@ const LOCATION_OPTIONS = [
   { label: "Germania", gl: "de", hl: "de" },
 ];
 
+// ── interfaces ────────────────────────────────────────────────────────────────
 interface Project {
-  id: number;
-  name: string;
-  domain: string;
-  location: string;
-  language: string;
-  keywords: string;
-  brands: string;
-  created_at: string;
+  id: number; name: string; domain: string;
+  location: string; language: string;
+  keywords: string; brands: string; created_at: string;
 }
-
 interface Run {
-  id: number;
-  project_id: number;
-  run_at: string;
-  location: string;
-  language: string;
-  total: number;
-  with_ai: number;
-  with_domain: number;
-  with_domain_in_ai: number;
+  id: number; project_id: number; run_at: string;
+  location: string; language: string;
+  total: number; with_ai: number; with_domain: number; with_domain_in_ai: number;
 }
 
-function StatCard({ icon, label, value, sub, gradient, delta }: {
-  icon: React.ReactNode; label: string; value: string | number; sub?: string; gradient: string; delta?: number;
-}) {
-  return (
-    <div className={`rounded-2xl p-5 flex items-center gap-4 shadow-sm ${gradient}`}>
-      <div className="p-3 rounded-xl bg-white/20 backdrop-blur-sm">{icon}</div>
-      <div className="flex-1 min-w-0">
-        <p className="text-xs font-medium uppercase tracking-wide opacity-75 text-white">{label}</p>
-        <div className="flex items-end gap-2">
-          <p className="text-2xl font-bold text-white truncate max-w-[120px]" title={String(value)}>{value}</p>
-          {delta !== undefined && delta !== 0 && (
-            <span className={`text-xs font-semibold mb-0.5 px-1.5 py-0.5 rounded-full ${delta > 0 ? "bg-white/20 text-white" : "bg-black/20 text-white/80"}`}>
-              {delta > 0 ? `▲ +${delta}` : `▼ ${delta}`}
-            </span>
-          )}
-        </div>
-        {sub && <p className="text-xs text-white/70 mt-0.5">{sub}</p>}
-      </div>
-    </div>
-  );
-}
+// ── style constants ───────────────────────────────────────────────────────────
+const inputCls =
+  "w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none " +
+  "focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-white transition-colors";
 
-function Badge({ active, label }: { active: boolean; label: string }) {
-  return (
-    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${active ? "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200" : "bg-gray-100 text-gray-400"}`}>
-      {active ? <CheckCircle2 size={11} /> : <XCircle size={11} />}
-      {label}
-    </span>
-  );
-}
+const btnPrimary =
+  "inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 " +
+  "text-white text-sm font-semibold rounded-lg px-4 py-2 transition-colors";
 
-// Helper client-side
+const btnSecondary =
+  "inline-flex items-center gap-1.5 border border-slate-200 bg-white hover:bg-slate-50 " +
+  "disabled:opacity-40 text-slate-700 text-sm font-medium rounded-lg px-3 py-1.5 transition-colors";
+
+// ── helpers ───────────────────────────────────────────────────────────────────
 function clientExtractDomain(url: string): string {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
-}
-
-// 3-state badge per Google AI Overview
-function GoogleAiBadge({ hasOverview, domainInAi, sourcesCount, onClick }: {
-  hasOverview: boolean; domainInAi: boolean; sourcesCount: number; onClick?: () => void;
-}) {
-  if (!hasOverview) return <span className="text-xs text-gray-300">Assente</span>;
-  if (domainInAi) return (
-    <button onClick={onClick} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-violet-100 text-violet-700 ring-1 ring-violet-200 hover:bg-violet-200 transition-colors">
-      <CheckCircle2 size={10} /> Citato · {sourcesCount} fonti
-    </button>
-  );
-  return (
-    <button onClick={onClick} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 ring-1 ring-amber-200 hover:bg-amber-200 transition-colors">
-      <AlertCircle size={10} /> Presente · non citato
-    </button>
-  );
-}
-
-// Copertura score — pallini per ogni piattaforma
-function AiCoverageScore({ r }: { r: KeywordResult }) {
-  // cited=true → pieno, mention=true → semitrasparente, false → grigio, null → tratteggiato
-  const platforms = [
-    { label: "Google AI (citato con link)", cited: r.hasAiOverview ? r.domainInAiSources : null, mention: false, color: "bg-violet-500", mentionColor: "bg-violet-200", na: !r.hasAiOverview },
-    { label: "Gemini", cited: r.domainInGemini ?? null, mention: r.geminiMention ?? null, color: "bg-sky-500", mentionColor: "bg-sky-200", na: false },
-    { label: "Perplexity", cited: r.domainInPerplexity ?? null, mention: r.perplexityMention ?? null, color: "bg-teal-500", mentionColor: "bg-teal-200", na: false },
-    { label: "ChatGPT", cited: r.domainInChatgpt ?? null, mention: r.chatgptMention ?? null, color: "bg-emerald-500", mentionColor: "bg-emerald-200", na: false },
-  ];
-  const withLink = platforms.filter(p => p.cited === true).length;
-  const withMention = platforms.filter(p => p.cited === false && p.mention === true).length;
-  const checked = platforms.filter(p => p.cited !== null && !p.na).length;
-  return (
-    <div className="flex items-center gap-1.5 justify-center">
-      {platforms.map((p, i) => (
-        <div key={i} title={p.label}
-          className={`w-2.5 h-2.5 rounded-full transition-all ${
-            p.na ? "bg-gray-100 border border-dashed border-gray-200" :
-            p.cited === true ? p.color :
-            p.mention === true ? p.mentionColor :
-            p.cited === false ? "bg-gray-200" :
-            "bg-gray-100 border border-gray-200"
-          }`} />
-      ))}
-      {checked > 0 && (
-        <span className="text-xs text-gray-400 ml-0.5">
-          {withLink > 0 && <span className="text-emerald-600 font-medium">{withLink}↗</span>}
-          {withMention > 0 && <span className="text-amber-500 font-medium ml-0.5">{withMention}💬</span>}
-          {withLink === 0 && withMention === 0 && "0"}
-          <span className="text-gray-300">/{checked}</span>
-        </span>
-      )}
-    </div>
-  );
-}
-
-// 3-state: Con link / Solo menzione / Non citato / — (non verificato)
-function AiPresenceBadge({ cited, mention, platform }: {
-  cited: boolean | null | undefined;
-  mention: boolean | null | undefined;
-  platform: "gemini" | "perplexity" | "chatgpt";
-}) {
-  if (cited === null || cited === undefined) return <span className="text-gray-300 text-xs">—</span>;
-  const platformColors = {
-    gemini: { link: "bg-sky-100 text-sky-700 ring-1 ring-sky-200", mention: "bg-sky-50 text-sky-500 ring-1 ring-sky-100", absent: "bg-gray-100 text-gray-400" },
-    perplexity: { link: "bg-teal-100 text-teal-700 ring-1 ring-teal-200", mention: "bg-teal-50 text-teal-500 ring-1 ring-teal-100", absent: "bg-gray-100 text-gray-400" },
-    chatgpt: { link: "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200", mention: "bg-emerald-50 text-emerald-500 ring-1 ring-emerald-100", absent: "bg-gray-100 text-gray-400" },
-  };
-  const c = platformColors[platform];
-  if (cited) return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${c.link}`}>
-      <CheckCircle2 size={10} /> Con link
-    </span>
-  );
-  if (mention) return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${c.mention}`}>
-      <AlertCircle size={10} /> Menzione
-    </span>
-  );
-  return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${c.absent}`}>
-      <XCircle size={10} /> Non citato
-    </span>
-  );
-}
-
-// Legacy — kept for SearchView
-function AiBadge({ value, platform }: { value: boolean | null | undefined; platform: "gemini" | "perplexity" | "chatgpt" }) {
-  return <AiPresenceBadge cited={value} mention={undefined} platform={platform} />;
-}
-
-function SourcesRow({ sources, trackedDomain, colSpan = 7 }: { sources: AiSource[]; trackedDomain: string; colSpan?: number }) {
-  if (!sources.length) return (
-    <tr><td colSpan={colSpan} className="px-6 py-3 bg-gray-50 text-xs text-gray-400 italic">Nessuna fonte disponibile.</td></tr>
-  );
-  const clean = trackedDomain.replace(/^www\./, "").replace(/^https?:\/\//, "");
-  return (
-    <tr>
-      <td colSpan={7} className="px-4 py-4 bg-indigo-50/40 border-b border-indigo-100">
-        <p className="text-xs font-semibold text-indigo-600 mb-3 uppercase tracking-wide flex items-center gap-1.5">
-          <Bot size={12} /> Fonti Google AI Overview — {sources.length} risultati
-        </p>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
-          {sources.map((s, i) => {
-            const isTracked = s.domain.includes(clean);
-            return (
-              <a key={i} href={s.url} target="_blank" rel="noopener noreferrer"
-                className={`flex items-start gap-2 p-2.5 rounded-xl border text-xs transition-all hover:shadow-sm ${isTracked ? "bg-amber-50 border-amber-200 hover:bg-amber-100" : "bg-white border-gray-200 hover:border-indigo-200"}`}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={`https://www.google.com/s2/favicons?domain=${s.domain}&sz=32`} alt="" width={14} height={14} className="rounded-sm mt-0.5 shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                <div className="min-w-0">
-                  <p className={`font-medium leading-tight truncate ${isTracked ? "text-amber-800" : "text-gray-700"}`}>
-                    {s.title.length > 45 ? s.title.slice(0, 45) + "…" : s.title}
-                  </p>
-                  <p className={`mt-0.5 truncate ${isTracked ? "text-amber-500" : "text-gray-400"}`}>{s.domain}</p>
-                  {isTracked && <span className="inline-block mt-1 text-xs bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded-full">★ tuo dominio</span>}
-                </div>
-              </a>
-            );
-          })}
-        </div>
-      </td>
-    </tr>
-  );
 }
 
 function computeSourceRecap(results: KeywordResult[]) {
@@ -227,7 +79,747 @@ function computeSourceRecap(results: KeywordResult[]) {
     .sort((a, b) => b.keywords.length - a.keywords.length);
 }
 
-// ─── New Project Modal ────────────────────────────────────────────────────────
+// ── micro components ──────────────────────────────────────────────────────────
+function Fav({ domain, size = 14 }: { domain: string; size?: number }) {
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={`https://www.google.com/s2/favicons?domain=${domain}&sz=32`}
+      alt="" width={size} height={size} className="rounded-sm shrink-0 opacity-80"
+      onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+  );
+}
+
+function Pill({ color, children }: { color?: string; children: React.ReactNode }) {
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded border ${color ?? "bg-slate-50 text-slate-500 border-slate-200"}`}>
+      {children}
+    </span>
+  );
+}
+
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="flex items-baseline gap-2 text-[11px] font-semibold uppercase tracking-widest text-slate-400 mb-1.5">
+        {label}
+        {hint && <span className="normal-case font-normal">{hint}</span>}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+// metric tile used in top strips
+function Metric({ label, value, sub, accent }: {
+  label: string; value: string | number; sub?: string; accent?: string;
+}) {
+  return (
+    <div className="min-w-[80px]">
+      <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 leading-none">{label}</p>
+      <p className={`text-2xl font-bold leading-none mt-1.5 ${accent ?? "text-slate-900"}`}>{value}</p>
+      {sub && <p className="text-[10px] text-slate-400 mt-1 leading-none">{sub}</p>}
+    </div>
+  );
+}
+
+// ── badge components ──────────────────────────────────────────────────────────
+function Badge({ active, label }: { active: boolean; label: string }) {
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded border ${
+      active ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+             : "bg-slate-50 text-slate-400 border-slate-200"
+    }`}>{label}</span>
+  );
+}
+
+function GoogleAiBadge({ hasOverview, domainInAi, sourcesCount, onClick }: {
+  hasOverview: boolean; domainInAi: boolean; sourcesCount: number; onClick?: () => void;
+}) {
+  if (!hasOverview) return <span className="text-xs text-slate-300">—</span>;
+  if (domainInAi) return (
+    <button onClick={onClick}
+      className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded border bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100 transition-colors">
+      <CheckCircle2 size={9} /> Citato · {sourcesCount}
+    </button>
+  );
+  return (
+    <button onClick={onClick}
+      className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded border bg-amber-50 text-amber-600 border-amber-200 hover:bg-amber-100 transition-colors">
+      <AlertCircle size={9} /> Presente
+    </button>
+  );
+}
+
+const PCOL = {
+  gemini:     "bg-sky-50 text-sky-700 border-sky-200",
+  perplexity: "bg-teal-50 text-teal-700 border-teal-200",
+  chatgpt:    "bg-emerald-50 text-emerald-700 border-emerald-200",
+} as const;
+
+function AiPresenceBadge({ cited, mention, platform }: {
+  cited: boolean | null | undefined;
+  mention: boolean | null | undefined;
+  platform: "gemini" | "perplexity" | "chatgpt";
+}) {
+  if (cited === null || cited === undefined) return <span className="text-slate-200 text-xs select-none">·</span>;
+  if (cited) return <Pill color={PCOL[platform]}><CheckCircle2 size={9} /> Link</Pill>;
+  if (mention) return <Pill color="bg-amber-50 text-amber-600 border-amber-200">Menzione</Pill>;
+  return <span className="text-xs text-slate-400">—</span>;
+}
+
+function AiCoverageScore({ r }: { r: KeywordResult }) {
+  const dots = [
+    { color: "bg-violet-500",  active: r.hasAiOverview ? r.domainInAiSources : null, label: "Google AI" },
+    { color: "bg-sky-500",     active: r.domainInGemini ?? null,     label: "Gemini" },
+    { color: "bg-teal-500",    active: r.domainInPerplexity ?? null, label: "Perplexity" },
+    { color: "bg-emerald-500", active: r.domainInChatgpt ?? null,    label: "ChatGPT" },
+  ];
+  return (
+    <div className="flex items-center gap-1 justify-center">
+      {dots.map((d, i) => (
+        <span key={i} title={d.label} className={`w-2.5 h-2.5 rounded-full transition-colors ${
+          d.active === true  ? d.color :
+          d.active === false ? "bg-slate-200" :
+          "bg-slate-100 border border-dashed border-slate-300"
+        }`} />
+      ))}
+    </div>
+  );
+}
+
+// ── SourcesPanel ──────────────────────────────────────────────────────────────
+function SourcesPanel({
+  results, domain, withAi, sourceRecap,
+}: {
+  results: KeywordResult[];
+  domain: string;
+  withAi: number;
+  sourceRecap: { domain: string; count: number; keywords: string[] }[];
+}) {
+  const [selected, setSelected] = useState<string | null>(null);
+  const [view, setView] = useState<"domains" | "bykeyword">("domains");
+  const clean = domain.replace(/^www\./, "").replace(/^https?:\/\//, "");
+
+  const urlsByDomain = new Map<string, { url: string; title: string; keywords: string[] }[]>();
+  for (const r of results) {
+    for (const s of r.aiSources) {
+      const existing = urlsByDomain.get(s.domain) || [];
+      const urlEntry = existing.find(e => e.url === s.url);
+      if (urlEntry) { if (!urlEntry.keywords.includes(r.keyword)) urlEntry.keywords.push(r.keyword); }
+      else existing.push({ url: s.url, title: s.title, keywords: [r.keyword] });
+      urlsByDomain.set(s.domain, existing);
+    }
+  }
+  const keywordsWithAi = results.filter(r => r.hasAiOverview);
+
+  if (sourceRecap.length === 0) return (
+    <div className="flex flex-col items-center justify-center py-20 text-slate-400 gap-2">
+      <Bot size={28} className="opacity-20" />
+      <p className="text-sm">Nessuna fonte AI rilevata</p>
+    </div>
+  );
+
+  return (
+    <div className="flex h-full min-h-[500px]">
+      {/* left rail */}
+      <div className="w-72 shrink-0 border-r border-slate-100 flex flex-col">
+        <div className="p-2 border-b border-slate-100 flex bg-slate-50/50">
+          {(["domains", "bykeyword"] as const).map(v => (
+            <button key={v} onClick={() => setView(v)}
+              className={`flex-1 py-1.5 text-xs font-medium rounded transition-colors ${view === v ? "bg-white shadow-sm text-indigo-600 border border-slate-200" : "text-slate-500 hover:text-slate-800"}`}>
+              {v === "domains" ? "Per dominio" : "Per keyword"}
+            </button>
+          ))}
+        </div>
+        <div className="overflow-y-auto flex-1">
+          {view === "domains" && sourceRecap.map((s, i) => {
+            const isTracked = s.domain.includes(clean);
+            const pct = withAi ? Math.min(100, Math.round((s.keywords.length / withAi) * 100)) : 0;
+            return (
+              <button key={i} onClick={() => setSelected(s.domain === selected ? null : s.domain)}
+                className={`w-full text-left px-4 py-3 border-b border-slate-50 transition-colors ${
+                  selected === s.domain ? "bg-indigo-50" :
+                  isTracked ? "bg-amber-50/60 hover:bg-amber-50" : "hover:bg-slate-50"
+                }`}>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-[10px] text-slate-300 font-mono w-4 shrink-0">{i + 1}</span>
+                  <Fav domain={s.domain} />
+                  <span className={`text-sm font-medium truncate ${isTracked ? "text-amber-700" : selected === s.domain ? "text-indigo-700" : "text-slate-800"}`}>{s.domain}</span>
+                  {isTracked && <span className="ml-auto shrink-0 text-[10px] bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded-full">★</span>}
+                </div>
+                <div className="flex items-center gap-2 pl-6">
+                  <div className="flex-1 bg-slate-100 rounded-full h-1">
+                    <div className={`h-1 rounded-full ${isTracked ? "bg-amber-400" : "bg-indigo-400"}`} style={{ width: `${pct}%` }} />
+                  </div>
+                  <span className="text-[10px] text-slate-400 shrink-0">{pct}% · {s.keywords.length}q</span>
+                </div>
+              </button>
+            );
+          })}
+          {view === "bykeyword" && keywordsWithAi.map((r, i) => (
+            <button key={i} onClick={() => setSelected(r.keyword === selected ? null : r.keyword)}
+              className={`w-full text-left px-4 py-3 border-b border-slate-50 transition-colors ${selected === r.keyword ? "bg-indigo-50" : "hover:bg-slate-50"}`}>
+              <div className={`text-sm font-medium truncate ${selected === r.keyword ? "text-indigo-700" : "text-slate-800"}`}>{r.keyword}</div>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="text-[10px] text-violet-500">{r.aiSources.length} fonti</span>
+                {r.domainInAiSources && <span className="text-[10px] text-amber-500">★ citato</span>}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* right detail */}
+      <div className="flex-1 overflow-y-auto p-5">
+        {!selected ? (
+          <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-2">
+            <Link size={24} className="opacity-20" />
+            <p className="text-sm">Seleziona {view === "domains" ? "un dominio" : "una keyword"}</p>
+          </div>
+        ) : view === "domains" ? (() => {
+          const urls = urlsByDomain.get(selected) || [];
+          const isTracked = selected.includes(clean);
+          return (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <Fav domain={selected} size={18} />
+                <div>
+                  <h3 className={`font-bold ${isTracked ? "text-amber-700" : "text-slate-900"}`}>{selected}</h3>
+                  <p className="text-xs text-slate-400">{urls.length} URL · {sourceRecap.find(s => s.domain === selected)?.keywords.length} query</p>
+                </div>
+                {isTracked && <span className="ml-auto text-xs bg-amber-100 text-amber-700 px-2.5 py-1 rounded-full font-medium border border-amber-200">★ Tuo dominio</span>}
+              </div>
+              <div className="space-y-2">
+                {urls.map((u, i) => (
+                  <div key={i} className="border border-slate-100 rounded-xl p-3 hover:border-indigo-200 transition-colors bg-white">
+                    <a href={u.url} target="_blank" rel="noopener noreferrer"
+                      className="text-sm font-medium text-indigo-600 hover:underline flex items-start gap-1.5 mb-1">
+                      <Link size={11} className="mt-0.5 shrink-0 opacity-60" />{u.title}
+                    </a>
+                    <p className="text-xs text-slate-400 truncate mb-2">{u.url}</p>
+                    <div className="flex flex-wrap gap-1">
+                      {u.keywords.map((kw, j) => (
+                        <span key={j} className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full border border-indigo-100">{kw}</span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })() : (() => {
+          const r = keywordsWithAi.find(r => r.keyword === selected);
+          if (!r) return null;
+          return (
+            <div className="space-y-4">
+              <div>
+                <h3 className="font-bold text-slate-900">{r.keyword}</h3>
+                <p className="text-xs text-slate-400 mt-0.5">{r.aiSources.length} fonti in AI Overview</p>
+              </div>
+              <div className="space-y-2">
+                {r.aiSources.map((s, i) => {
+                  const isTracked = s.domain.includes(clean);
+                  return (
+                    <div key={i} className={`border rounded-xl p-3 bg-white transition-colors ${isTracked ? "border-amber-200 bg-amber-50/50" : "border-slate-100 hover:border-indigo-200"}`}>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <Fav domain={s.domain} />
+                        <span className={`text-xs font-medium ${isTracked ? "text-amber-700" : "text-slate-500"}`}>{s.domain}</span>
+                        {isTracked && <span className="ml-auto text-[10px] bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded-full">★ tuo dominio</span>}
+                      </div>
+                      <a href={s.url} target="_blank" rel="noopener noreferrer"
+                        className="text-sm font-medium text-indigo-600 hover:underline flex items-start gap-1.5">
+                        <Link size={11} className="mt-0.5 shrink-0 opacity-60" />{s.title}
+                      </a>
+                      <p className="text-xs text-slate-400 truncate mt-1">{s.url}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+    </div>
+  );
+}
+
+// ── ResultsTable ──────────────────────────────────────────────────────────────
+function ResultsTable({
+  results, domain, withAi, runs, prevResults,
+  onAiCheck, aiCheckLoading, aiCheckProgress,
+}: {
+  results: KeywordResult[];
+  domain: string;
+  withAi: number;
+  runs: Run[];
+  prevResults?: KeywordResult[];
+  onAiCheck?: () => void;
+  aiCheckLoading?: boolean;
+  aiCheckProgress?: number;
+}) {
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
+  const [activeTab, setActiveTab] = useState<"results" | "sources" | "competitor" | "charts">("results");
+  const [filter, setFilter] = useState<"all" | "overview" | "cited" | "opportunity">("all");
+  const [expandedCompetitor, setExpandedCompetitor] = useState<string | null>(null);
+  const sourceRecap = computeSourceRecap(results);
+  const hasAiPlatformData = results.some(r => r.domainInGemini !== null && r.domainInGemini !== undefined);
+
+  const competitorMap = React.useMemo(() => {
+    const cleanDomain = domain.replace(/^www\./, "").replace(/^https?:\/\//, "");
+    const isOwn = (d: string) => d === cleanDomain || d.endsWith("." + cleanDomain) || d.includes(cleanDomain);
+    const map = new Map<string, { googleAi: number; gemini: number; chatgpt: number; perplexity: number; keywords: Set<string> }>();
+    const bump = (d: string, platform: "googleAi" | "gemini" | "chatgpt" | "perplexity", kw: string) => {
+      if (!d || isOwn(d)) return;
+      const e = map.get(d) ?? { googleAi: 0, gemini: 0, chatgpt: 0, perplexity: 0, keywords: new Set() };
+      e[platform]++;
+      e.keywords.add(kw);
+      map.set(d, e);
+    };
+    for (const r of results) {
+      for (const s of r.aiSources) bump(s.domain, "googleAi", r.keyword);
+      for (const url of r.geminiSources ?? []) bump(clientExtractDomain(url), "gemini", r.keyword);
+      for (const url of r.chatgptSources ?? []) bump(clientExtractDomain(url), "chatgpt", r.keyword);
+      for (const url of r.perplexitySources ?? []) bump(clientExtractDomain(url), "perplexity", r.keyword);
+    }
+    return Array.from(map.entries())
+      .map(([d, v]) => ({ domain: d, ...v, total: v.googleAi + v.gemini + v.chatgpt + v.perplexity, keywords: Array.from(v.keywords) }))
+      .sort((a, b) => b.total - a.total);
+  }, [results, domain]);
+
+  const total = results.length;
+  const withOverview = results.filter(r => r.hasAiOverview).length;
+  const citedGoogleAi = results.filter(r => r.domainInAiSources).length;
+  const citedGemini = results.filter(r => r.domainInGemini === true).length;
+  const citedChatgpt = results.filter(r => r.domainInChatgpt === true).length;
+  const opportunities = results.filter(r => r.hasAiOverview && !r.domainInAiSources && !r.domainInGemini && !r.domainInChatgpt).length;
+  const checkedCount = results.filter(r => r.domainInGemini !== null && r.domainInGemini !== undefined).length;
+  const geoScore = checkedCount > 0
+    ? Math.round(((citedGoogleAi + citedGemini + citedChatgpt) / (3 * total)) * 100)
+    : null;
+
+  const filteredResults = results.filter(r => {
+    if (filter === "overview") return r.hasAiOverview;
+    if (filter === "cited") return r.domainInAiSources || r.domainInGemini === true || r.domainInChatgpt === true;
+    if (filter === "opportunity") return r.hasAiOverview && !r.domainInAiSources && r.domainInGemini !== true && r.domainInChatgpt !== true;
+    return true;
+  });
+
+  function toggleRow(i: number) {
+    setExpandedRows(prev => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; });
+  }
+
+  function exportCSV() {
+    const header = ["Keyword", "Posizione SERP", "Google AI Overview", "Citato in Google AI", "Fonti Google AI", "Gemini", "Perplexity", "ChatGPT", "Stato"].join(",");
+    const rows = results.map(r => [
+      `"${r.keyword}"`,
+      r.domainPosition ? `#${r.domainPosition}` : "Non presente",
+      !r.hasAiOverview ? "Assente" : r.domainInAiSources ? "Citato" : "Presente",
+      r.domainInAiSources ? "Sì" : "No",
+      `"${r.aiSources.map(s => s.domain).join(" | ")}"`,
+      r.domainInGemini == null ? "—" : r.domainInGemini ? "Sì" : "No",
+      r.domainInPerplexity == null ? "—" : r.domainInPerplexity ? "Sì" : "No",
+      r.domainInChatgpt == null ? "—" : r.domainInChatgpt ? "Sì" : "No",
+      r.status,
+    ].join(","));
+    const csv = [header, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `serp-${domain}-${Date.now()}.csv`;
+    a.click();
+  }
+
+  // tab labels
+  const tabs = [
+    { key: "results",    label: "Risultati",   count: total },
+    { key: "sources",    label: "Fonti AI",    count: sourceRecap.length },
+    { key: "competitor", label: "Competitor",  count: competitorMap.length },
+    { key: "charts",     label: "Grafici",     count: null },
+  ] as const;
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+
+      {/* ── top metric strip ─────────────────────────────────────────────── */}
+      <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-6 bg-slate-50/50 overflow-x-auto">
+        {geoScore !== null && (
+          <>
+            <div className="shrink-0">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-500">GEO Score</p>
+              <p className="text-3xl font-black text-indigo-600 leading-none mt-1">{geoScore}<span className="text-sm font-normal text-slate-400 ml-0.5">/100</span></p>
+            </div>
+            <div className="h-8 w-px bg-slate-200 shrink-0" />
+          </>
+        )}
+        <Metric label="Keyword"    value={total} />
+        <div className="h-8 w-px bg-slate-200 shrink-0" />
+        <Metric label="AI Overview" value={withOverview}
+          sub={`${total ? Math.round((withOverview / total) * 100) : 0}%`}
+          accent="text-violet-600" />
+        <Metric label="Citato Google" value={citedGoogleAi}
+          sub={`${total ? Math.round((citedGoogleAi / total) * 100) : 0}%`}
+          accent="text-violet-700" />
+        {hasAiPlatformData && <>
+          <div className="h-8 w-px bg-slate-200 shrink-0" />
+          <Metric label="Gemini"  value={citedGemini}  accent="text-sky-600"
+            sub={`${total ? Math.round((citedGemini / total) * 100) : 0}%`} />
+          <Metric label="ChatGPT" value={citedChatgpt} accent="text-emerald-600"
+            sub={`${total ? Math.round((citedChatgpt / total) * 100) : 0}%`} />
+        </>}
+        <div className="h-8 w-px bg-slate-200 shrink-0" />
+        <Metric label="Opportunità" value={opportunities} accent="text-amber-600"
+          sub="AI senza citazione" />
+      </div>
+
+      {/* ── tab bar + actions ─────────────────────────────────────────────── */}
+      <div className="flex items-center border-b border-slate-100 px-4 gap-1">
+        <div className="flex-1 flex">
+          {tabs.map(t => (
+            <button key={t.key} onClick={() => setActiveTab(t.key)}
+              className={`flex items-center gap-1.5 px-3 py-3 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === t.key
+                  ? "border-indigo-600 text-indigo-700"
+                  : "border-transparent text-slate-500 hover:text-slate-800"
+              }`}>
+              {t.label}
+              {t.count !== null && t.count > 0 && (
+                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
+                  activeTab === t.key ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-500"
+                }`}>{t.count}</span>
+              )}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 py-2 shrink-0">
+          {activeTab === "results" && (
+            <div className="flex gap-0.5 bg-slate-100 rounded-lg p-0.5">
+              {([
+                { key: "all",         label: `Tutte (${total})` },
+                { key: "overview",    label: `AI (${withOverview})` },
+                { key: "cited",       label: `Citate (${citedGoogleAi})` },
+                { key: "opportunity", label: `Opp. (${opportunities})` },
+              ] as const).map(f => (
+                <button key={f.key} onClick={() => setFilter(f.key)}
+                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                    filter === f.key ? "bg-white shadow-sm text-slate-900" : "text-slate-500 hover:text-slate-700"
+                  }`}>
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {onAiCheck && (
+            <button onClick={onAiCheck} disabled={aiCheckLoading} className={btnSecondary}>
+              {aiCheckLoading
+                ? <><Loader2 size={13} className="animate-spin" />{aiCheckProgress ?? 0}%</>
+                : <><Bot size={13} />Verifica AI</>}
+            </button>
+          )}
+          <button onClick={exportCSV} className={btnSecondary}>
+            <Download size={13} />CSV
+          </button>
+        </div>
+      </div>
+
+      {/* ── results tab ───────────────────────────────────────────────────── */}
+      {activeTab === "results" && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-100 text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                <th className="w-8 px-3 py-2.5"></th>
+                <th className="text-left px-3 py-2.5">Keyword</th>
+                <th className="text-center px-3 py-2.5 whitespace-nowrap">Pos. SERP</th>
+                <th className="text-center px-3 py-2.5 whitespace-nowrap">
+                  <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-violet-500 inline-block" />Google AI</span>
+                </th>
+                <th className="text-center px-3 py-2.5 whitespace-nowrap">
+                  <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-sky-500 inline-block" />Gemini</span>
+                </th>
+                <th className="text-center px-3 py-2.5 whitespace-nowrap">
+                  <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-teal-500 inline-block" />Perplexity</span>
+                </th>
+                <th className="text-center px-3 py-2.5 whitespace-nowrap">
+                  <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />ChatGPT</span>
+                </th>
+                <th className="text-center px-3 py-2.5">Copertura</th>
+                {prevResults && prevResults.length > 0 && <th className="text-center px-3 py-2.5">Δ</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {filteredResults.length === 0 && (
+                <tr><td colSpan={20} className="text-center py-12 text-sm text-slate-400">Nessuna keyword per questo filtro.</td></tr>
+              )}
+              {filteredResults.map((r, i) => {
+                const prev = prevResults?.find(p => p.keyword === r.keyword);
+                const aiChanged = prev ? (r.hasAiOverview !== prev.hasAiOverview ? (r.hasAiOverview ? "gained" : "lost") : null) : null;
+                const posNow = r.domainPosition ?? null;
+                const posPrev = prev?.domainPosition ?? null;
+                const posDelta = (posNow !== null && posPrev !== null) ? posPrev - posNow : null;
+                const canExpand = r.hasAiOverview || (r.geminiSources?.length ?? 0) > 0 || (r.chatgptSources?.length ?? 0) > 0;
+                const isExpanded = expandedRows.has(i);
+
+                return (
+                  <React.Fragment key={i}>
+                    <tr
+                      className={`border-b border-slate-50 transition-colors ${
+                        canExpand ? "cursor-pointer hover:bg-slate-50/70" : ""
+                      } ${isExpanded ? "bg-indigo-50/30" : ""}`}
+                      onClick={() => canExpand && toggleRow(i)}
+                    >
+                      <td className="px-3 py-2.5 text-slate-300">
+                        {canExpand ? (isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />) : null}
+                      </td>
+                      <td className="px-3 py-2.5 font-medium text-slate-800 max-w-[220px]">
+                        <span className="line-clamp-2 leading-snug text-sm">{r.keyword}</span>
+                      </td>
+                      <td className="px-3 py-2.5 text-center">
+                        {r.domainPosition
+                          ? <span className="text-sm font-bold text-indigo-600">#{r.domainPosition}</span>
+                          : <span className="text-xs text-slate-300">—</span>}
+                      </td>
+                      <td className="px-3 py-2.5 text-center">
+                        <GoogleAiBadge hasOverview={r.hasAiOverview} domainInAi={r.domainInAiSources}
+                          sourcesCount={r.aiSources.length}
+                          onClick={r.hasAiOverview ? () => toggleRow(i) : undefined} />
+                      </td>
+                      <td className="px-3 py-2.5 text-center">
+                        <AiPresenceBadge cited={r.domainInGemini} mention={r.geminiMention} platform="gemini" />
+                      </td>
+                      <td className="px-3 py-2.5 text-center">
+                        <AiPresenceBadge cited={r.domainInPerplexity} mention={r.perplexityMention} platform="perplexity" />
+                      </td>
+                      <td className="px-3 py-2.5 text-center">
+                        <AiPresenceBadge cited={r.domainInChatgpt} mention={r.chatgptMention} platform="chatgpt" />
+                      </td>
+                      <td className="px-3 py-2.5 text-center">
+                        <AiCoverageScore r={r} />
+                      </td>
+                      {prevResults && prevResults.length > 0 && (
+                        <td className="px-3 py-2.5 text-center">
+                          {!prev ? <span className="text-[10px] text-slate-300">nuovo</span>
+                            : aiChanged === "gained" ? <span className="text-[10px] font-semibold text-emerald-600">▲ AI</span>
+                            : aiChanged === "lost" ? <span className="text-[10px] font-semibold text-red-500">▼ AI</span>
+                            : posDelta !== null && posDelta !== 0 ? (
+                              <span className={`text-[10px] font-semibold ${posDelta > 0 ? "text-emerald-600" : "text-red-500"}`}>
+                                {posDelta > 0 ? `▲+${posDelta}` : `▼${posDelta}`}
+                              </span>
+                            ) : <span className="text-slate-200">—</span>}
+                        </td>
+                      )}
+                    </tr>
+                    {isExpanded && (
+                      <tr>
+                        <td colSpan={8 + (prevResults && prevResults.length > 0 ? 1 : 0)}
+                          className="px-4 py-4 bg-slate-50/60 border-b border-slate-100">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            {/* Google AI sources */}
+                            <div className="bg-white rounded-xl border border-violet-100 p-3">
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-violet-500 mb-2 flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-violet-500" />
+                                Google AI Overview {r.aiSources.length > 0 && `· ${r.aiSources.length} fonti`}
+                              </p>
+                              {r.aiSources.length === 0
+                                ? <p className="text-xs text-slate-400 italic">{r.hasAiOverview ? "Nessuna fonte estratta" : "AI Overview assente"}</p>
+                                : <div className="space-y-1 max-h-36 overflow-y-auto">
+                                    {r.aiSources.map((s, j) => {
+                                      const isMe = s.domain.includes(domain.replace(/^www\.|^https?:\/\//, ""));
+                                      return (
+                                        <a key={j} href={s.url} target="_blank" rel="noopener noreferrer"
+                                          className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs transition-colors ${isMe ? "bg-amber-50 text-amber-700 font-medium" : "text-slate-600 hover:bg-violet-50"}`}>
+                                          <Fav domain={s.domain} size={12} />
+                                          <span className="truncate">{s.domain}</span>
+                                          {isMe && <span className="ml-auto shrink-0 text-amber-400">★</span>}
+                                        </a>
+                                      );
+                                    })}
+                                  </div>}
+                            </div>
+                            {/* Gemini sources */}
+                            <div className="bg-white rounded-xl border border-sky-100 p-3">
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-sky-500 mb-2 flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
+                                Gemini {(r.geminiSources?.length ?? 0) > 0 && `· ${r.geminiSources!.length} fonti`}
+                              </p>
+                              {(r.geminiSources?.length ?? 0) === 0
+                                ? <p className="text-xs text-slate-400 italic">{r.domainInGemini === null ? "Non verificato" : "Nessuna fonte"}</p>
+                                : <div className="space-y-1 max-h-36 overflow-y-auto">
+                                    {r.geminiSources!.map((url, j) => {
+                                      const d = clientExtractDomain(url);
+                                      const isMe = d.includes(domain.replace(/^www\.|^https?:\/\//, ""));
+                                      return (
+                                        <a key={j} href={url} target="_blank" rel="noopener noreferrer"
+                                          className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs transition-colors ${isMe ? "bg-amber-50 text-amber-700 font-medium" : "text-slate-600 hover:bg-sky-50"}`}>
+                                          <Fav domain={d} size={12} />
+                                          <span className="truncate">{d}</span>
+                                          {isMe && <span className="ml-auto shrink-0 text-amber-400">★</span>}
+                                        </a>
+                                      );
+                                    })}
+                                  </div>}
+                            </div>
+                            {/* ChatGPT sources */}
+                            <div className="bg-white rounded-xl border border-emerald-100 p-3">
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-500 mb-2 flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                ChatGPT {(r.chatgptSources?.length ?? 0) > 0 && `· ${r.chatgptSources!.length} fonti`}
+                              </p>
+                              {(r.chatgptSources?.length ?? 0) === 0
+                                ? <p className="text-xs text-slate-400 italic">{r.domainInChatgpt === null ? "Non verificato" : "Nessuna fonte"}</p>
+                                : <div className="space-y-1 max-h-36 overflow-y-auto">
+                                    {r.chatgptSources!.map((url, j) => {
+                                      const d = clientExtractDomain(url);
+                                      const isMe = d.includes(domain.replace(/^www\.|^https?:\/\//, ""));
+                                      return (
+                                        <a key={j} href={url} target="_blank" rel="noopener noreferrer"
+                                          className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs transition-colors ${isMe ? "bg-amber-50 text-amber-700 font-medium" : "text-slate-600 hover:bg-emerald-50"}`}>
+                                          <Fav domain={d} size={12} />
+                                          <span className="truncate">{d}</span>
+                                          {isMe && <span className="ml-auto shrink-0 text-amber-400">★</span>}
+                                        </a>
+                                      );
+                                    })}
+                                  </div>}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ── sources tab ───────────────────────────────────────────────────── */}
+      {activeTab === "sources" && (
+        <SourcesPanel results={results} domain={domain} withAi={withAi} sourceRecap={sourceRecap} />
+      )}
+
+      {/* ── competitor tab ────────────────────────────────────────────────── */}
+      {activeTab === "competitor" && (
+        <div className="p-5">
+          {competitorMap.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-2">
+              <Bot size={28} className="opacity-20" />
+              <p className="text-sm">Nessun dato competitor — esegui analisi e poi Verifica AI</p>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-slate-200 overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-xs font-semibold text-slate-500 uppercase tracking-wide border-b border-slate-200">
+                  <tr>
+                    <th className="text-left px-4 py-2.5">Dominio</th>
+                    <th className="text-center px-4 py-2.5"><span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-violet-500" />Google AI</span></th>
+                    <th className="text-center px-4 py-2.5"><span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-sky-500" />Gemini</span></th>
+                    <th className="text-center px-4 py-2.5"><span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />ChatGPT</span></th>
+                    <th className="text-center px-4 py-2.5"><span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-teal-500" />Perplexity</span></th>
+                    <th className="text-center px-4 py-2.5">Totale</th>
+                    <th className="text-center px-4 py-2.5">Keyword</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {competitorMap.map((c, i) => (
+                    <React.Fragment key={c.domain}>
+                      <tr className={`border-b border-slate-50 cursor-pointer transition-colors ${i % 2 === 0 ? "bg-white" : "bg-slate-50/40"} hover:bg-indigo-50/20`}
+                        onClick={() => setExpandedCompetitor(expandedCompetitor === c.domain ? null : c.domain)}>
+                        <td className="px-4 py-2.5">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-slate-300 font-mono w-4">{i + 1}</span>
+                            <Fav domain={c.domain} />
+                            <span className="font-medium text-slate-800 truncate max-w-[180px]">{c.domain}</span>
+                            {expandedCompetitor === c.domain ? <ChevronDown size={12} className="text-slate-400 shrink-0" /> : <ChevronRight size={12} className="text-slate-300 shrink-0" />}
+                          </div>
+                        </td>
+                        {[c.googleAi, c.gemini, c.chatgpt, c.perplexity].map((v, ci) => (
+                          <td key={ci} className="px-4 py-2.5 text-center">
+                            {v > 0
+                              ? <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-full">{v}</span>
+                              : <span className="text-slate-200 text-xs">—</span>}
+                          </td>
+                        ))}
+                        <td className="px-4 py-2.5 text-center">
+                          <span className="text-xs font-bold text-white bg-slate-800 px-2 py-0.5 rounded-full">{c.total}</span>
+                        </td>
+                        <td className="px-4 py-2.5 text-center">
+                          <span className="text-xs text-slate-500">{c.keywords.length}</span>
+                        </td>
+                      </tr>
+                      {expandedCompetitor === c.domain && (
+                        <tr>
+                          <td colSpan={7} className="px-5 py-3 bg-indigo-50/30 border-b border-indigo-100">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-500 mb-2">Query dove appare:</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {c.keywords.map((kw, j) => (
+                                <span key={j} className="text-xs bg-white border border-indigo-100 text-slate-700 px-2 py-0.5 rounded-full">{kw}</span>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── charts tab ────────────────────────────────────────────────────── */}
+      {activeTab === "charts" && (
+        <div className="p-6 space-y-8">
+          <section>
+            <h3 className="text-sm font-semibold text-slate-700 mb-0.5">Trend visibilità AI nel tempo</h3>
+            <p className="text-xs text-slate-400 mb-4">% keyword in cui il dominio appare: Google AI Overview, Gemini, ChatGPT</p>
+            <GeoTrendChart runs={runs} />
+          </section>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <section>
+              <h3 className="text-sm font-semibold text-slate-700 mb-0.5">Citation rate per piattaforma</h3>
+              <p className="text-xs text-slate-400 mb-4">% keyword citate con link (scuro) o solo menzionate</p>
+              <GeoPlatformBar results={results} />
+            </section>
+            <section>
+              {hasAiPlatformData ? <>
+                <h3 className="text-sm font-semibold text-slate-700 mb-0.5">Visibilità GEO — radar</h3>
+                <p className="text-xs text-slate-400 mb-4">% keyword per canale</p>
+                <GeoRadar results={results} />
+              </> : <>
+                <h3 className="text-sm font-semibold text-slate-700 mb-0.5">Presenza AI Overview</h3>
+                <p className="text-xs text-slate-400 mb-4">Quante keyword attivano l&apos;AI Overview</p>
+                <AiDonut results={results} />
+              </>}
+            </section>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <section>
+              <h3 className="text-sm font-semibold text-slate-700 mb-0.5">Distribuzione posizioni organiche</h3>
+              <p className="text-xs text-slate-400 mb-4">Top 3 / 4–10 / non posizionato</p>
+              <PositionChart results={results} />
+            </section>
+            <section>
+              <h3 className="text-sm font-semibold text-slate-700 mb-0.5">Breakdown query con AI Overview</h3>
+              <p className="text-xs text-slate-400 mb-4">AI + organico / solo organico / solo AI / assente</p>
+              <AiPresenceBreakdown results={results} />
+            </section>
+          </div>
+          <section>
+            <h3 className="text-sm font-semibold text-slate-700 mb-0.5">Top fonti AI Overview</h3>
+            <p className="text-xs text-slate-400 mb-4">
+              Domini più citati — <span className="text-amber-600 font-medium">giallo</span> tuo dominio · <span className="text-indigo-600 font-medium">viola</span> competitor
+            </p>
+            <TopSourcesChart results={results} trackedDomain={domain} />
+          </section>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── NewProjectModal ───────────────────────────────────────────────────────────
 function NewProjectModal({ onClose, onSave }: { onClose: () => void; onSave: (p: Project) => void }) {
   const [name, setName] = useState("");
   const [domain, setDomain] = useState("");
@@ -256,41 +848,41 @@ function NewProjectModal({ onClose, onSave }: { onClose: () => void; onSave: (p:
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md space-y-4">
-        <h2 className="font-bold text-gray-900 text-lg">Nuovo progetto</h2>
-        <div className="space-y-3">
-          <div>
-            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide block mb-1">Nome progetto</label>
-            <input className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-400" placeholder="es. Atlante Energy SEO" value={name} onChange={e => setName(e.target.value)} />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide block mb-1">Dominio</label>
-            <input className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-400" placeholder="es. atlante.energy" value={domain} onChange={e => setDomain(e.target.value)} />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide block mb-1">Paese</label>
-            <select className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-400" value={locationIdx} onChange={e => setLocationIdx(Number(e.target.value))}>
-              {LOCATION_OPTIONS.map((o, i) => <option key={i} value={i}>{o.label}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide block mb-1">
-              Brand names <span className="normal-case font-normal text-gray-400">— per check menzione AI (uno per riga)</span>
-            </label>
-            <textarea className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-400 font-mono resize-none" rows={3}
-              placeholder={"Piscine Interrate\nPiscineInterrate\natlante.energy"} value={brands} onChange={e => setBrands(e.target.value)} />
-            <p className="text-xs text-gray-400 mt-1">Aggiungi varianti del nome (con/senza .it, acronimi, ecc.)</p>
-          </div>
-          <div>
-            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide block mb-1">Keywords (una per riga)</label>
-            <textarea className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-400 font-mono resize-none" rows={5} placeholder="keyword 1&#10;keyword 2&#10;..." value={keywords} onChange={e => setKeywords(e.target.value)} />
-          </div>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+          <h2 className="font-semibold text-slate-900">Nuovo progetto</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+            <XCircle size={18} />
+          </button>
         </div>
-        <div className="flex gap-2 justify-end pt-2">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Annulla</button>
-          <button onClick={handleSave} disabled={!name || !domain || saving} className="bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl px-5 py-2 flex items-center gap-2 shadow-sm shadow-indigo-200">
-            {saving && <Loader2 size={13} className="animate-spin" />} Crea progetto
+        <div className="p-6 space-y-4 overflow-y-auto max-h-[70vh]">
+          <Field label="Nome progetto">
+            <input className={inputCls} placeholder="es. Atlante Energy SEO" value={name} onChange={e => setName(e.target.value)} />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Dominio">
+              <input className={inputCls} placeholder="es. atlante.energy" value={domain} onChange={e => setDomain(e.target.value)} />
+            </Field>
+            <Field label="Paese">
+              <select className={inputCls} value={locationIdx} onChange={e => setLocationIdx(Number(e.target.value))}>
+                {LOCATION_OPTIONS.map((o, i) => <option key={i} value={i}>{o.label}</option>)}
+              </select>
+            </Field>
+          </div>
+          <Field label="Brand names" hint="— uno per riga (varianti del nome brand)">
+            <textarea className={`${inputCls} font-mono resize-none`} rows={3}
+              placeholder={"Nike\nNike IT\nnike.it"} value={brands} onChange={e => setBrands(e.target.value)} />
+          </Field>
+          <Field label="Keywords" hint="— una per riga, max 50">
+            <textarea className={`${inputCls} font-mono resize-none`} rows={5}
+              placeholder={"keyword 1\nkeyword 2\n..."} value={keywords} onChange={e => setKeywords(e.target.value)} />
+          </Field>
+        </div>
+        <div className="px-6 py-4 border-t border-slate-100 flex gap-2 justify-end">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-500 hover:text-slate-800">Annulla</button>
+          <button onClick={handleSave} disabled={!name || !domain || saving} className={btnPrimary}>
+            {saving && <Loader2 size={13} className="animate-spin" />}Crea progetto
           </button>
         </div>
       </div>
@@ -298,693 +890,7 @@ function NewProjectModal({ onClose, onSave }: { onClose: () => void; onSave: (p:
   );
 }
 
-// ─── Sources Panel ───────────────────────────────────────────────────────────
-function Favicon({ domain }: { domain: string }) {
-  return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={`https://www.google.com/s2/favicons?domain=${domain}&sz=32`}
-      alt=""
-      width={16}
-      height={16}
-      className="rounded-sm shrink-0"
-      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-    />
-  );
-}
-
-function SourcesPanel({
-  results, domain, withAi, sourceRecap,
-}: {
-  results: KeywordResult[];
-  domain: string;
-  withAi: number;
-  sourceRecap: { domain: string; count: number; keywords: string[] }[];
-}) {
-  const [selected, setSelected] = useState<string | null>(null);
-  const [view, setView] = useState<"domains" | "bykeyword">("domains");
-  const clean = domain.replace(/^www\./, "").replace(/^https?:\/\//, "");
-
-  // Build full URL list per domain
-  const urlsByDomain = new Map<string, { url: string; title: string; keywords: string[] }[]>();
-  for (const r of results) {
-    for (const s of r.aiSources) {
-      const existing = urlsByDomain.get(s.domain) || [];
-      const urlEntry = existing.find(e => e.url === s.url);
-      if (urlEntry) { if (!urlEntry.keywords.includes(r.keyword)) urlEntry.keywords.push(r.keyword); }
-      else existing.push({ url: s.url, title: s.title, keywords: [r.keyword] });
-      urlsByDomain.set(s.domain, existing);
-    }
-  }
-
-  // Per-keyword view data
-  const keywordsWithAi = results.filter(r => r.hasAiOverview);
-
-  if (sourceRecap.length === 0) return (
-    <div className="px-6 py-12 text-center text-gray-400 text-sm">Nessuna fonte AI rilevata.</div>
-  );
-
-  return (
-    <div className="flex h-full min-h-[500px]">
-      {/* Left panel */}
-      <div className="w-72 shrink-0 border-r border-gray-100 flex flex-col">
-        {/* View switcher */}
-        <div className="p-3 border-b border-gray-100 flex gap-1">
-          <button onClick={() => setView("domains")}
-            className={`flex-1 text-xs font-medium py-1.5 rounded-lg transition-colors ${view === "domains" ? "bg-indigo-600 text-white" : "text-gray-500 hover:text-gray-800"}`}>
-            Per dominio
-          </button>
-          <button onClick={() => setView("bykeyword")}
-            className={`flex-1 text-xs font-medium py-1.5 rounded-lg transition-colors ${view === "bykeyword" ? "bg-indigo-600 text-white" : "text-gray-500 hover:text-gray-800"}`}>
-            Per keyword
-          </button>
-        </div>
-
-        <div className="overflow-y-auto flex-1">
-          {view === "domains" && sourceRecap.map((s, i) => {
-            const isTracked = s.domain.includes(clean);
-            const pct = withAi ? Math.min(100, Math.round((s.keywords.length / withAi) * 100)) : 0;
-            return (
-              <button key={i} onClick={() => setSelected(s.domain === selected ? null : s.domain)}
-                className={`w-full text-left px-4 py-3 border-b border-gray-50 transition-colors ${selected === s.domain ? "bg-indigo-50" : isTracked ? "bg-amber-50 hover:bg-amber-100" : "hover:bg-gray-50"}`}>
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="text-xs text-gray-400 font-mono w-5 shrink-0">{i + 1}</span>
-                  <Favicon domain={s.domain} />
-                  <span className={`text-sm font-medium truncate ${isTracked ? "text-amber-700" : selected === s.domain ? "text-indigo-700" : "text-gray-800"}`}>{s.domain}</span>
-                  {isTracked && <span className="shrink-0 text-xs bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded-full ml-auto">★</span>}
-                </div>
-                <div className="flex items-center gap-2 pl-7">
-                  <div className="flex-1 bg-gray-100 rounded-full h-1.5">
-                    <div className={`h-1.5 rounded-full ${isTracked ? "bg-amber-400" : "bg-violet-400"}`} style={{ width: `${pct}%` }} />
-                  </div>
-                  <span className="text-xs text-gray-500 shrink-0">{pct}% · {s.keywords.length} query</span>
-                </div>
-              </button>
-            );
-          })}
-
-          {view === "bykeyword" && keywordsWithAi.map((r, i) => (
-            <button key={i} onClick={() => setSelected(r.keyword === selected ? null : r.keyword)}
-              className={`w-full text-left px-4 py-3 border-b border-gray-50 transition-colors ${selected === r.keyword ? "bg-indigo-50" : "hover:bg-gray-50"}`}>
-              <div className={`text-sm font-medium truncate ${selected === r.keyword ? "text-indigo-700" : "text-gray-800"}`}>{r.keyword}</div>
-              <div className="flex items-center gap-2 mt-1">
-                <span className="text-xs text-violet-500">{r.aiSources.length} fonti</span>
-                {r.domainInAiSources && <span className="text-xs text-amber-600">★ tuo dominio citato</span>}
-              </div>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Right panel */}
-      <div className="flex-1 overflow-y-auto p-5">
-        {!selected ? (
-          <div className="flex flex-col items-center justify-center h-full text-gray-400 text-sm gap-2">
-            <Link size={28} className="opacity-20" />
-            <p>Seleziona un {view === "domains" ? "dominio" : "keyword"} per vedere i dettagli</p>
-          </div>
-        ) : view === "domains" ? (
-          /* Domain detail */
-          (() => {
-            const urls = urlsByDomain.get(selected) || [];
-            const isTracked = selected.includes(clean);
-            return (
-              <div className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <Favicon domain={selected} />
-                  <div>
-                    <h3 className={`font-bold text-lg ${isTracked ? "text-amber-700" : "text-gray-900"}`}>{selected}</h3>
-                    <p className="text-xs text-gray-400">{urls.length} URL citati in {sourceRecap.find(s => s.domain === selected)?.keywords.length} query</p>
-                  </div>
-                  {isTracked && <span className="ml-auto text-sm bg-amber-100 text-amber-700 px-3 py-1 rounded-full font-medium">★ Tuo dominio</span>}
-                </div>
-                <div className="space-y-2">
-                  {urls.map((u, i) => (
-                    <div key={i} className="border border-gray-100 rounded-xl p-3 hover:border-indigo-200 transition-colors">
-                      <a href={u.url} target="_blank" rel="noopener noreferrer"
-                        className="text-sm font-medium text-indigo-600 hover:underline flex items-start gap-1.5 mb-1.5">
-                        <Link size={12} className="mt-0.5 shrink-0" />
-                        {u.title}
-                      </a>
-                      <p className="text-xs text-gray-400 truncate mb-2">{u.url}</p>
-                      <div className="flex flex-wrap gap-1">
-                        {u.keywords.map((kw, j) => (
-                          <span key={j} className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">{kw}</span>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })()
-        ) : (
-          /* Keyword detail */
-          (() => {
-            const r = keywordsWithAi.find(r => r.keyword === selected);
-            if (!r) return null;
-            return (
-              <div className="space-y-4">
-                <div>
-                  <h3 className="font-bold text-lg text-gray-900">{r.keyword}</h3>
-                  <p className="text-xs text-gray-400 mt-0.5">{r.aiSources.length} fonti citate nell&apos;AI Overview</p>
-                </div>
-                <div className="space-y-2">
-                  {r.aiSources.map((s, i) => {
-                    const isTracked = s.domain.includes(clean);
-                    return (
-                      <div key={i} className={`border rounded-xl p-3 transition-colors ${isTracked ? "border-amber-200 bg-amber-50" : "border-gray-100 hover:border-indigo-200"}`}>
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <Favicon domain={s.domain} />
-                          <span className={`text-xs font-medium ${isTracked ? "text-amber-700" : "text-gray-500"}`}>{s.domain}</span>
-                          {isTracked && <span className="text-xs bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded-full ml-auto">★ tuo dominio</span>}
-                        </div>
-                        <a href={s.url} target="_blank" rel="noopener noreferrer"
-                          className="text-sm font-medium text-indigo-600 hover:underline flex items-start gap-1.5">
-                          <Link size={12} className="mt-0.5 shrink-0" />
-                          {s.title}
-                        </a>
-                        <p className="text-xs text-gray-400 truncate mt-1">{s.url}</p>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })()
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── Results Table ────────────────────────────────────────────────────────────
-function ResultsTable({ results, domain, withAi, runs, prevResults, onAiCheck, aiCheckLoading, aiCheckProgress }: {
-  results: KeywordResult[];
-  domain: string;
-  withAi: number;
-  runs: Run[];
-  prevResults?: KeywordResult[];
-  onAiCheck?: () => void;
-  aiCheckLoading?: boolean;
-  aiCheckProgress?: number;
-}) {
-  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
-  const [activeTab, setActiveTab] = useState<"results" | "sources" | "charts" | "competitor">("results");
-  const [filter, setFilter] = useState<"all" | "overview" | "cited" | "opportunity">("all");
-  const [expandedCompetitor, setExpandedCompetitor] = useState<string | null>(null);
-  const sourceRecap = computeSourceRecap(results);
-  const hasAiPlatformData = results.some(r => r.domainInGemini !== null && r.domainInGemini !== undefined);
-
-  // Competitor map: aggregate all AI source domains except own, per platform
-  const competitorMap = React.useMemo(() => {
-    const cleanDomain = domain.replace(/^www\./, "").replace(/^https?:\/\//, "");
-    const isOwn = (d: string) => d === cleanDomain || d.endsWith("." + cleanDomain) || d.includes(cleanDomain);
-    const map = new Map<string, { googleAi: number; gemini: number; chatgpt: number; perplexity: number; keywords: Set<string> }>();
-    const bump = (d: string, platform: "googleAi" | "gemini" | "chatgpt" | "perplexity", kw: string) => {
-      if (!d || isOwn(d)) return;
-      const e = map.get(d) ?? { googleAi: 0, gemini: 0, chatgpt: 0, perplexity: 0, keywords: new Set() };
-      e[platform]++;
-      e.keywords.add(kw);
-      map.set(d, e);
-    };
-    for (const r of results) {
-      for (const s of r.aiSources) bump(s.domain, "googleAi", r.keyword);
-      for (const url of r.geminiSources ?? []) bump(clientExtractDomain(url), "gemini", r.keyword);
-      for (const url of r.chatgptSources ?? []) bump(clientExtractDomain(url), "chatgpt", r.keyword);
-      for (const url of r.perplexitySources ?? []) bump(clientExtractDomain(url), "perplexity", r.keyword);
-    }
-    return Array.from(map.entries())
-      .map(([d, v]) => ({ domain: d, ...v, total: v.googleAi + v.gemini + v.chatgpt + v.perplexity, keywords: Array.from(v.keywords) }))
-      .sort((a, b) => b.total - a.total);
-  }, [results, domain]);
-
-  // Stats
-  const total = results.length;
-  const withOverview = results.filter(r => r.hasAiOverview).length;
-  const citedGoogleAi = results.filter(r => r.domainInAiSources).length;
-  const citedGemini = results.filter(r => r.domainInGemini === true).length;
-  const citedChatgpt = results.filter(r => r.domainInChatgpt === true).length;
-  const opportunities = results.filter(r => r.hasAiOverview && !r.domainInAiSources && !r.domainInGemini && !r.domainInChatgpt).length;
-  const checkedCount = results.filter(r => r.domainInGemini !== null && r.domainInGemini !== undefined).length;
-  const geoScore = checkedCount > 0
-    ? Math.round(((citedGoogleAi + citedGemini + citedChatgpt) / (3 * total)) * 100)
-    : null;
-
-  // Filtered results
-  const filteredResults = results.filter(r => {
-    if (filter === "overview") return r.hasAiOverview;
-    if (filter === "cited") return r.domainInAiSources || r.domainInGemini === true || r.domainInChatgpt === true;
-    if (filter === "opportunity") return r.hasAiOverview && !r.domainInAiSources && r.domainInGemini !== true && r.domainInChatgpt !== true;
-    return true;
-  });
-
-  function toggleRow(i: number) {
-    setExpandedRows(prev => {
-      const next = new Set(prev);
-      next.has(i) ? next.delete(i) : next.add(i);
-      return next;
-    });
-  }
-
-  function exportCSV() {
-    const header = ["Keyword", "Posizione SERP", "Google AI Overview", "Citato in Google AI", "Fonti Google AI", "Gemini", "Perplexity", "ChatGPT", "Stato"].join(",");
-    const rows = results.map(r => {
-      const googleAi = !r.hasAiOverview ? "Assente" : r.domainInAiSources ? "Citato" : "Presente";
-      return [
-        `"${r.keyword}"`,
-        r.domainPosition ? `#${r.domainPosition}` : "Non presente",
-        googleAi,
-        r.domainInAiSources ? "Sì" : "No",
-        `"${r.aiSources.map(s => s.domain).join(" | ")}"`,
-        r.domainInGemini == null ? "—" : r.domainInGemini ? "Sì" : "No",
-        r.domainInPerplexity == null ? "—" : r.domainInPerplexity ? "Sì" : "No",
-        r.domainInChatgpt == null ? "—" : r.domainInChatgpt ? "Sì" : "No",
-        r.status,
-      ].join(",");
-    });
-    const csv = [header, ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url;
-    a.download = `serp-${domain}-${Date.now()}.csv`; a.click();
-  }
-
-  return (
-    <div className="space-y-4">
-      {/* GEO Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        {geoScore !== null && (
-          <div className="col-span-2 md:col-span-1 lg:col-span-1 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-2xl p-4 text-white shadow-lg shadow-indigo-200">
-            <p className="text-xs font-semibold uppercase tracking-wider opacity-80">GEO Score</p>
-            <p className="text-4xl font-black mt-1">{geoScore}</p>
-            <p className="text-xs opacity-70 mt-0.5">su 100</p>
-          </div>
-        )}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-          <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider">AI Overview</p>
-          <p className="text-2xl font-bold text-violet-600 mt-1">{withOverview}</p>
-          <p className="text-xs text-gray-400 mt-0.5">{total ? Math.round((withOverview/total)*100) : 0}% keyword</p>
-        </div>
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-          <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider">Citato Google AI</p>
-          <p className="text-2xl font-bold text-violet-700 mt-1">{citedGoogleAi}</p>
-          <p className="text-xs text-gray-400 mt-0.5">{total ? Math.round((citedGoogleAi/total)*100) : 0}% keyword</p>
-        </div>
-        {hasAiPlatformData && <>
-          <div className="bg-white rounded-2xl border border-sky-100 shadow-sm p-4">
-            <p className="text-xs text-sky-500 font-semibold uppercase tracking-wider">Citato Gemini</p>
-            <p className="text-2xl font-bold text-sky-600 mt-1">{citedGemini}</p>
-            <p className="text-xs text-gray-400 mt-0.5">{checkedCount ? Math.round((citedGemini/total)*100) : 0}% keyword</p>
-          </div>
-          <div className="bg-white rounded-2xl border border-emerald-100 shadow-sm p-4">
-            <p className="text-xs text-emerald-500 font-semibold uppercase tracking-wider">Citato ChatGPT</p>
-            <p className="text-2xl font-bold text-emerald-600 mt-1">{citedChatgpt}</p>
-            <p className="text-xs text-gray-400 mt-0.5">{checkedCount ? Math.round((citedChatgpt/total)*100) : 0}% keyword</p>
-          </div>
-        </>}
-        <div className="bg-amber-50 rounded-2xl border border-amber-100 shadow-sm p-4">
-          <p className="text-xs text-amber-500 font-semibold uppercase tracking-wider">Opportunità</p>
-          <p className="text-2xl font-bold text-amber-600 mt-1">{opportunities}</p>
-          <p className="text-xs text-gray-400 mt-0.5">AI Overview senza citazione</p>
-        </div>
-      </div>
-
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-        <div className="flex gap-1">
-          {(["results", "sources", "competitor", "charts"] as const).map(tab => (
-            <button key={tab} onClick={() => setActiveTab(tab)}
-              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${activeTab === tab ? "bg-indigo-600 text-white" : "text-gray-500 hover:text-gray-800"}`}>
-              {tab === "results" ? "Risultati"
-                : tab === "sources" ? <>Fonti AI {sourceRecap.length > 0 && <span className="ml-1 bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full text-xs">{sourceRecap.length}</span>}</>
-                : tab === "competitor" ? <>Competitor {competitorMap.length > 0 && <span className="ml-1 bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full text-xs">{competitorMap.length}</span>}</>
-                : "📊 Grafici"}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Filter chips */}
-          {activeTab === "results" && (
-            <div className="flex gap-1 border border-gray-100 rounded-xl p-1 bg-gray-50">
-              {([
-                { key: "all", label: `Tutte (${total})` },
-                { key: "overview", label: `AI Overview (${withOverview})` },
-                { key: "cited", label: `Citate (${citedGoogleAi + citedGemini + citedChatgpt > 0 ? Math.max(citedGoogleAi, citedGemini, citedChatgpt) : citedGoogleAi})` },
-                { key: "opportunity", label: `Opportunità (${opportunities})` },
-              ] as const).map(f => (
-                <button key={f.key} onClick={() => setFilter(f.key)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${filter === f.key ? "bg-white shadow-sm text-indigo-700 border border-indigo-100" : "text-gray-500 hover:text-gray-700"}`}>
-                  {f.label}
-                </button>
-              ))}
-            </div>
-          )}
-          {onAiCheck && (
-            <button
-              onClick={onAiCheck}
-              disabled={aiCheckLoading}
-              className="flex items-center gap-1.5 text-sm font-semibold px-3 py-1.5 rounded-xl border border-violet-200 text-violet-700 hover:bg-violet-50 disabled:opacity-50 transition-colors"
-            >
-              {aiCheckLoading
-                ? <><Loader2 size={13} className="animate-spin" /> {aiCheckProgress ?? 0}%</>
-                : <><Bot size={13} /> Verifica AI</>}
-            </button>
-          )}
-          <button onClick={exportCSV} className="flex items-center gap-1.5 text-sm text-indigo-600 hover:text-indigo-800 font-medium">
-            <Download size={14} /> Esporta CSV
-          </button>
-        </div>
-      </div>
-
-      {activeTab === "results" && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="text-xs text-gray-500 uppercase tracking-wide border-b border-gray-100">
-              <tr>
-                <th className="w-8 px-4 py-3 bg-gray-50"></th>
-                <th className="text-left px-4 py-3 bg-gray-50">Keyword</th>
-                {/* SERP */}
-                <th className="text-center px-4 py-3 bg-indigo-50 text-indigo-500 border-l border-indigo-100">
-                  <span className="flex items-center justify-center gap-1"><Search size={10} /> SERP</span>
-                </th>
-                {/* Google AI */}
-                <th className="text-center px-4 py-3 bg-violet-50 text-violet-500 border-l border-violet-100" colSpan={1}>
-                  <span className="flex items-center justify-center gap-1"><Bot size={10} /> Google AI Overview</span>
-                </th>
-                {/* AI Platforms */}
-                <th className="text-center px-4 py-3 bg-sky-50 text-sky-600 border-l border-sky-100">
-                  <span className="flex items-center justify-center gap-1">✦ Gemini</span>
-                </th>
-                <th className="text-center px-4 py-3 bg-teal-50 text-teal-600">
-                  <span className="flex items-center justify-center gap-1">✦ Perplexity</span>
-                </th>
-                <th className="text-center px-4 py-3 bg-emerald-50 text-emerald-600">
-                  <span className="flex items-center justify-center gap-1">✦ ChatGPT</span>
-                </th>
-                {/* Score */}
-                <th className="text-center px-4 py-3 bg-gray-50 border-l border-gray-100">Copertura</th>
-                {prevResults && prevResults.length > 0 && <th className="text-center px-4 py-3 bg-gray-50">VS Prec.</th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {filteredResults.length === 0 && (
-                <tr><td colSpan={20} className="text-center py-12 text-sm text-gray-400">Nessuna keyword corrisponde al filtro selezionato.</td></tr>
-              )}
-              {filteredResults.map((r, i) => {
-                const prev = prevResults?.find(p => p.keyword === r.keyword);
-                const aiChanged = prev ? (r.hasAiOverview !== prev.hasAiOverview ? (r.hasAiOverview ? "gained" : "lost") : null) : null;
-                const posNow = r.domainPosition ?? null;
-                const posPrev = prev?.domainPosition ?? null;
-                const posDelta = (posNow !== null && posPrev !== null) ? posPrev - posNow : null; // positive = improved
-                const hasDiff = aiChanged !== null || posDelta !== null;
-                const canExpand = r.hasAiOverview || (r.geminiSources?.length ?? 0) > 0 || (r.chatgptSources?.length ?? 0) > 0;
-                return (
-                  <React.Fragment key={i}>
-                    <tr className={`hover:bg-gray-50/80 transition-colors border-b border-gray-50 ${canExpand ? "cursor-pointer" : ""}`} onClick={() => canExpand && toggleRow(i)}>
-                      <td className="px-4 py-3.5 text-gray-400">{canExpand ? (expandedRows.has(i) ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : null}</td>
-                      <td className="px-4 py-3.5 font-medium text-gray-800 max-w-[220px]">
-                        <span className="line-clamp-2 leading-snug">{r.keyword}</span>
-                      </td>
-                      {/* SERP */}
-                      <td className="px-4 py-3.5 text-center border-l border-indigo-50">
-                        {r.domainPosition
-                          ? <span className="inline-flex items-center gap-1 font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full text-sm">#{r.domainPosition}</span>
-                          : <span className="text-xs text-gray-300 bg-gray-50 px-2 py-0.5 rounded-full">Non presente</span>}
-                      </td>
-                      {/* Google AI Overview — 3 stati */}
-                      <td className="px-4 py-3.5 text-center border-l border-violet-50">
-                        <GoogleAiBadge
-                          hasOverview={r.hasAiOverview}
-                          domainInAi={r.domainInAiSources}
-                          sourcesCount={r.aiSources.length}
-                          onClick={r.hasAiOverview ? () => toggleRow(i) : undefined}
-                        />
-                      </td>
-                      {/* AI Platforms */}
-                      <td className="px-4 py-3.5 text-center border-l border-sky-50"><AiPresenceBadge cited={r.domainInGemini} mention={r.geminiMention} platform="gemini" /></td>
-                      <td className="px-4 py-3.5 text-center"><AiPresenceBadge cited={r.domainInPerplexity} mention={r.perplexityMention} platform="perplexity" /></td>
-                      <td className="px-4 py-3.5 text-center"><AiPresenceBadge cited={r.domainInChatgpt} mention={r.chatgptMention} platform="chatgpt" /></td>
-                      {/* Copertura */}
-                      <td className="px-4 py-3.5 text-center border-l border-gray-100"><AiCoverageScore r={r} /></td>
-                      {prevResults && prevResults.length > 0 && (
-                        <td className="px-4 py-3 text-center">
-                          {!prev ? (
-                            <span className="text-xs text-gray-300 italic">nuovo</span>
-                          ) : !hasDiff ? (
-                            <span className="text-xs text-gray-300">—</span>
-                          ) : (
-                            <div className="flex flex-col items-center gap-0.5">
-                              {aiChanged === "gained" && (
-                                <span className="inline-flex items-center gap-0.5 text-xs font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">▲ AI</span>
-                              )}
-                              {aiChanged === "lost" && (
-                                <span className="inline-flex items-center gap-0.5 text-xs font-semibold text-red-500 bg-red-50 px-1.5 py-0.5 rounded-full">▼ AI</span>
-                              )}
-                              {posDelta !== null && posDelta !== 0 && (
-                                <span className={`inline-flex items-center gap-0.5 text-xs font-semibold px-1.5 py-0.5 rounded-full ${posDelta > 0 ? "text-emerald-600 bg-emerald-50" : "text-red-500 bg-red-50"}`}>
-                                  {posDelta > 0 ? `▲ +${posDelta}` : `▼ ${posDelta}`} pos
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </td>
-                      )}
-                    </tr>
-                    {expandedRows.has(i) && (
-                      <tr>
-                        <td colSpan={8 + (prevResults && prevResults.length > 0 ? 1 : 0)} className="px-4 py-4 bg-slate-50/60 border-b border-slate-100">
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            {/* Google AI Overview */}
-                            <div>
-                              <p className="text-xs font-semibold text-violet-600 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-                                <Bot size={11} /> Google AI Overview {r.aiSources.length > 0 && <span className="text-violet-400 font-normal normal-case">· {r.aiSources.length} fonti</span>}
-                              </p>
-                              {r.aiSources.length === 0
-                                ? <p className="text-xs text-gray-400 italic">{r.hasAiOverview ? "Nessuna fonte estratta" : "AI Overview assente"}</p>
-                                : <div className="space-y-1 max-h-36 overflow-y-auto">
-                                  {r.aiSources.map((s, j) => {
-                                    const isMe = s.domain.includes(domain.replace(/^www\.|^https?:\/\//, ""));
-                                    return (
-                                      <a key={j} href={s.url} target="_blank" rel="noopener noreferrer"
-                                        className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs transition-colors ${isMe ? "bg-amber-50 text-amber-700 font-medium" : "bg-white text-gray-600 hover:bg-violet-50"}`}>
-                                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                                        <img src={`https://www.google.com/s2/favicons?domain=${s.domain}&sz=16`} alt="" width={12} height={12} className="rounded-sm shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                                        <span className="truncate">{s.domain}</span>
-                                        {isMe && <span className="shrink-0 ml-auto text-amber-500">★</span>}
-                                      </a>
-                                    );
-                                  })}
-                                </div>}
-                            </div>
-                            {/* Gemini */}
-                            <div>
-                              <p className="text-xs font-semibold text-sky-600 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-                                ✦ Gemini {(r.geminiSources?.length ?? 0) > 0 && <span className="text-sky-400 font-normal normal-case">· {r.geminiSources!.length} fonti</span>}
-                              </p>
-                              {(r.geminiSources?.length ?? 0) === 0
-                                ? <p className="text-xs text-gray-400 italic">{r.domainInGemini === null ? "Non ancora verificato" : "Nessuna fonte"}</p>
-                                : <div className="space-y-1 max-h-36 overflow-y-auto">
-                                  {r.geminiSources!.map((url, j) => {
-                                    const d = clientExtractDomain(url);
-                                    const isMe = d.includes(domain.replace(/^www\.|^https?:\/\//, ""));
-                                    return (
-                                      <a key={j} href={url} target="_blank" rel="noopener noreferrer"
-                                        className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs transition-colors ${isMe ? "bg-amber-50 text-amber-700 font-medium" : "bg-white text-gray-600 hover:bg-sky-50"}`}>
-                                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                                        <img src={`https://www.google.com/s2/favicons?domain=${d}&sz=16`} alt="" width={12} height={12} className="rounded-sm shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                                        <span className="truncate">{d}</span>
-                                        {isMe && <span className="shrink-0 ml-auto text-amber-500">★</span>}
-                                      </a>
-                                    );
-                                  })}
-                                </div>}
-                            </div>
-                            {/* ChatGPT */}
-                            <div>
-                              <p className="text-xs font-semibold text-emerald-600 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-                                ✦ ChatGPT {(r.chatgptSources?.length ?? 0) > 0 && <span className="text-emerald-400 font-normal normal-case">· {r.chatgptSources!.length} fonti</span>}
-                              </p>
-                              {(r.chatgptSources?.length ?? 0) === 0
-                                ? <p className="text-xs text-gray-400 italic">{r.domainInChatgpt === null ? "Non ancora verificato" : "Nessuna fonte"}</p>
-                                : <div className="space-y-1 max-h-36 overflow-y-auto">
-                                  {r.chatgptSources!.map((url, j) => {
-                                    const d = clientExtractDomain(url);
-                                    const isMe = d.includes(domain.replace(/^www\.|^https?:\/\//, ""));
-                                    return (
-                                      <a key={j} href={url} target="_blank" rel="noopener noreferrer"
-                                        className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs transition-colors ${isMe ? "bg-amber-50 text-amber-700 font-medium" : "bg-white text-gray-600 hover:bg-emerald-50"}`}>
-                                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                                        <img src={`https://www.google.com/s2/favicons?domain=${d}&sz=16`} alt="" width={12} height={12} className="rounded-sm shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                                        <span className="truncate">{d}</span>
-                                        {isMe && <span className="shrink-0 ml-auto text-amber-500">★</span>}
-                                      </a>
-                                    );
-                                  })}
-                                </div>}
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {activeTab === "sources" && (
-        <SourcesPanel results={results} domain={domain} withAi={withAi} sourceRecap={sourceRecap} />
-      )}
-
-      {activeTab === "competitor" && (
-        <div className="p-6">
-          {competitorMap.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-3">
-              <Bot size={32} className="opacity-20" />
-              <p className="text-sm">Nessun dato competitor. Esegui prima un&apos;analisi e poi Verifica AI.</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 mb-2">
-                <p className="text-sm text-gray-500">{competitorMap.length} domini citati nelle fonti AI al posto tuo — ordinati per frequenza totale</p>
-              </div>
-              <div className="overflow-x-auto rounded-xl border border-gray-100">
-                <table className="w-full text-sm">
-                  <thead className="bg-gradient-to-r from-slate-50 to-gray-50 text-xs text-gray-500 uppercase tracking-wider border-b border-gray-100">
-                    <tr>
-                      <th className="text-left px-4 py-3 font-semibold">Dominio</th>
-                      <th className="text-center px-4 py-3 font-semibold text-violet-600">Google AI</th>
-                      <th className="text-center px-4 py-3 font-semibold text-sky-600">Gemini</th>
-                      <th className="text-center px-4 py-3 font-semibold text-emerald-600">ChatGPT</th>
-                      <th className="text-center px-4 py-3 font-semibold text-teal-600">Perplexity</th>
-                      <th className="text-center px-4 py-3 font-semibold">Totale</th>
-                      <th className="text-center px-4 py-3 font-semibold">Keyword</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {competitorMap.map((c, i) => (
-                      <React.Fragment key={c.domain}>
-                        <tr
-                          className={`border-b border-gray-50 cursor-pointer transition-colors ${i % 2 === 0 ? "bg-white" : "bg-slate-50/40"} hover:bg-indigo-50/30`}
-                          onClick={() => setExpandedCompetitor(expandedCompetitor === c.domain ? null : c.domain)}
-                        >
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs text-gray-300 w-5 shrink-0 font-mono">{i + 1}</span>
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={`https://www.google.com/s2/favicons?domain=${c.domain}&sz=32`} alt="" width={16} height={16} className="rounded-sm shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                              <span className="font-medium text-gray-800 truncate max-w-[200px]">{c.domain}</span>
-                              {expandedCompetitor === c.domain ? <ChevronDown size={13} className="text-gray-400 shrink-0" /> : <ChevronRight size={13} className="text-gray-300 shrink-0" />}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            {c.googleAi > 0 ? <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-violet-100 text-violet-700 text-xs font-bold">{c.googleAi}</span> : <span className="text-gray-200">—</span>}
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            {c.gemini > 0 ? <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-sky-100 text-sky-700 text-xs font-bold">{c.gemini}</span> : <span className="text-gray-200">—</span>}
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            {c.chatgpt > 0 ? <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">{c.chatgpt}</span> : <span className="text-gray-200">—</span>}
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            {c.perplexity > 0 ? <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-teal-100 text-teal-700 text-xs font-bold">{c.perplexity}</span> : <span className="text-gray-200">—</span>}
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-full bg-gray-900 text-white text-xs font-bold min-w-[2rem]">{c.total}</span>
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <span className="text-xs text-gray-500">{c.keywords.length} kw</span>
-                          </td>
-                        </tr>
-                        {expandedCompetitor === c.domain && (
-                          <tr>
-                            <td colSpan={7} className="px-6 py-3 bg-indigo-50/30 border-b border-indigo-100">
-                              <p className="text-xs font-semibold text-indigo-600 mb-2 uppercase tracking-wide">Query dove appare questo dominio:</p>
-                              <div className="flex flex-wrap gap-2">
-                                {c.keywords.map((kw, j) => (
-                                  <span key={j} className="inline-flex px-2.5 py-1 bg-white border border-indigo-100 rounded-full text-xs text-gray-700">{kw}</span>
-                                ))}
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                      </React.Fragment>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {activeTab === "charts" && (
-        <div className="p-6 space-y-8">
-          {/* GEO Trend storico — primary chart */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-700 mb-1">Trend visibilità AI nel tempo</h3>
-            <p className="text-xs text-gray-400 mb-4">% keyword in cui il dominio appare: Google AI Overview, Gemini, ChatGPT, Perplexity</p>
-            <GeoTrendChart runs={runs} />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {/* GEO Platform bar */}
-            <div>
-              <h3 className="text-sm font-semibold text-gray-700 mb-1">Citation rate per piattaforma</h3>
-              <p className="text-xs text-gray-400 mb-4">% keyword citate con link (scuro) o solo menzionate (giallo)</p>
-              <GeoPlatformBar results={results} />
-            </div>
-
-            {/* GEO Radar or AiDonut */}
-            <div>
-              {hasAiPlatformData
-                ? <>
-                    <h3 className="text-sm font-semibold text-gray-700 mb-1">Visibilità GEO — radar</h3>
-                    <p className="text-xs text-gray-400 mb-4">% keyword in cui il dominio appare per canale</p>
-                    <GeoRadar results={results} />
-                  </>
-                : <>
-                    <h3 className="text-sm font-semibold text-gray-700 mb-1">Presenza AI Overview</h3>
-                    <p className="text-xs text-gray-400 mb-4">Quante keyword attivano l&apos;AI Overview di Google</p>
-                    <AiDonut results={results} />
-                  </>
-              }
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {/* Distribuzione posizioni */}
-            <div>
-              <h3 className="text-sm font-semibold text-gray-700 mb-1">Distribuzione posizioni organiche</h3>
-              <p className="text-xs text-gray-400 mb-4">Top 3 / 4–10 / non posizionato</p>
-              <PositionChart results={results} />
-            </div>
-
-            {/* Presenza dominio nelle query con AI */}
-            <div>
-              <h3 className="text-sm font-semibold text-gray-700 mb-1">Breakdown su query con AI Overview</h3>
-              <p className="text-xs text-gray-400 mb-4">In AI + organico / solo organico / solo AI / assente</p>
-              <AiPresenceBreakdown results={results} />
-            </div>
-          </div>
-
-          {/* Top fonti AI competitor */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-700 mb-1">Top fonti citate in AI Overview</h3>
-            <p className="text-xs text-gray-400 mb-4">Domini più citati come fonti — <span className="text-amber-600 font-medium">giallo</span> = tuo dominio, <span className="text-indigo-600 font-medium">viola</span> = competitor</p>
-            <TopSourcesChart results={results} trackedDomain={domain} />
-          </div>
-        </div>
-      )}
-    </div>
-    </div>
-  );
-}
-
-// ─── Search View ─────────────────────────────────────────────────────────────
+// ── SearchView ────────────────────────────────────────────────────────────────
 function SearchView() {
   const [queriesRaw, setQueriesRaw] = useState("");
   const [locationIdx, setLocationIdx] = useState(0);
@@ -1006,43 +912,28 @@ function SearchView() {
 
   async function handleSearch() {
     if (!queries.length) return;
-    setLoading(true);
-    setError("");
-    setResults([]);
-    setProgress(0);
-    setExpandedRow(null);
-    setShowStats(false);
-    setSelectedDomain(null);
-    setAiResults(new Map());
-    setAiCheckProgress(0);
-
+    setLoading(true); setError(""); setResults([]); setProgress(0);
+    setExpandedRow(null); setShowStats(false); setSelectedDomain(null);
+    setAiResults(new Map()); setAiCheckProgress(0);
     const allResults: SearchResult[] = [];
     for (let i = 0; i < queries.length; i++) {
       try {
         const res = await fetch("/api/search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            keyword: queries[i],
-            location: LOCATION_OPTIONS[locationIdx].gl,
-            language: LOCATION_OPTIONS[locationIdx].hl,
-            domain: domain.trim(),
-          }),
+          body: JSON.stringify({ keyword: queries[i], location: LOCATION_OPTIONS[locationIdx].gl, language: LOCATION_OPTIONS[locationIdx].hl, domain: domain.trim() }),
         });
         const data = await res.json();
         if (res.ok) allResults.push(data.result);
       } catch { /* skip */ }
       setProgress(Math.round(((i + 1) / queries.length) * 100));
     }
-
-    setResults(allResults);
-    setLoading(false);
+    setResults(allResults); setLoading(false);
   }
 
   async function handleAiCheck() {
     if (!results.length) return;
-    setAiCheckLoading(true);
-    setAiCheckProgress(0);
+    setAiCheckLoading(true); setAiCheckProgress(0);
     const keywords = results.map(r => r.keyword);
     const brands = brandsRaw.split(",").map(b => b.trim()).filter(Boolean);
     const BATCH = 3;
@@ -1057,9 +948,7 @@ function SearchView() {
         });
         if (res.ok) {
           const data = await res.json();
-          for (const r of data.results as AiPlatformResult[]) {
-            newMap.set(r.keyword, r);
-          }
+          for (const r of data.results as AiPlatformResult[]) newMap.set(r.keyword, r);
           setAiResults(new Map(newMap));
         }
       } catch { /* skip */ }
@@ -1068,7 +957,6 @@ function SearchView() {
     setAiCheckLoading(false);
   }
 
-  // Aggregate: top domains with their URLs per query
   const domainStats = (() => {
     const map = new Map<string, { count: number; urls: { title: string; url: string; query: string }[] }>();
     for (const r of results) {
@@ -1082,13 +970,8 @@ function SearchView() {
         else map.set(s.domain, { count: 1, urls: [entry] });
       }
     }
-    // recompute count = unique queries
     return Array.from(map.entries())
-      .map(([domain, v]) => ({
-        domain,
-        queryCount: new Set(v.urls.map(u => u.query)).size,
-        urls: v.urls,
-      }))
+      .map(([domain, v]) => ({ domain, queryCount: new Set(v.urls.map(u => u.query)).size, urls: v.urls }))
       .sort((a, b) => b.queryCount - a.queryCount);
   })();
 
@@ -1096,7 +979,6 @@ function SearchView() {
   const withAi = results.filter(r => r.hasAiOverview).length;
   const intentCounts = results.reduce((acc, r) => { acc[r.intent] = (acc[r.intent] || 0) + 1; return acc; }, {} as Record<string, number>);
 
-  // URLs for selected domain grouped by query
   const selectedDomainData = selectedDomain ? domainStats.find(d => d.domain === selectedDomain) : null;
   const urlsByQuery = selectedDomainData
     ? selectedDomainData.urls.reduce((acc, u) => {
@@ -1107,362 +989,306 @@ function SearchView() {
     : {};
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">Ricerca</h2>
-        <p className="text-sm text-gray-500 mt-1">Analizza query su Google: intento, AI Overview e fonti citate.</p>
-      </div>
-
-      {/* Input */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm shadow-indigo-50 p-6">
-        <div className="flex gap-4 items-start">
-          <div className="flex-1 space-y-1.5">
-            <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider block">Query / Prompt <span className="text-gray-300 font-normal normal-case">— una per riga, max 50</span></label>
+    <div className="flex h-full">
+      {/* ── left input panel ──────────────────────────────────────────────── */}
+      <aside className="w-72 shrink-0 border-r border-slate-200 bg-white flex flex-col">
+        <div className="p-5 border-b border-slate-100">
+          <h2 className="text-sm font-semibold text-slate-900">Ricerca</h2>
+          <p className="text-xs text-slate-400 mt-0.5">Analizza query su Google: intento, AI Overview, fonti</p>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <Field label="Query / Prompt" hint="max 50, una per riga">
             <textarea
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 font-mono resize-none transition-all"
-              rows={5}
-              placeholder={"cos'è il SEO\ncome fare link building\nmigliore agenzia SEO Italia\n..."}
-              value={queriesRaw}
-              onChange={e => setQueriesRaw(e.target.value)}
+              className={`${inputCls} font-mono resize-none`} rows={8}
+              placeholder={"cos'è il SEO\nlink building\nmigliore agenzia SEO\n..."}
+              value={queriesRaw} onChange={e => setQueriesRaw(e.target.value)}
             />
-            <p className="text-xs text-gray-400">{queries.length}/50 query</p>
-          </div>
-          <div className="flex flex-col gap-2.5 pt-6 min-w-[160px]">
-            <input
-              className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all"
-              placeholder="Dominio (opzionale)"
-              value={domain}
-              onChange={e => setDomain(e.target.value)}
-            />
-            <input
-              className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all"
-              placeholder="Brand AI (es: Nike, Nike IT)"
-              title="Nomi brand per rilevare menzioni nei risultati AI, separati da virgola"
-              value={brandsRaw}
-              onChange={e => setBrandsRaw(e.target.value)}
-            />
-            <select
-              className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-white transition-all"
-              value={locationIdx}
-              onChange={e => setLocationIdx(Number(e.target.value))}
-            >
+            <p className="text-[10px] text-slate-400 mt-1">{queries.length}/50 query</p>
+          </Field>
+          <Field label="Dominio" hint="opzionale">
+            <input className={inputCls} placeholder="es. nike.it" value={domain} onChange={e => setDomain(e.target.value)} />
+          </Field>
+          <Field label="Brand AI" hint="virgola separati">
+            <input className={inputCls} placeholder="Nike, Nike IT" value={brandsRaw} onChange={e => setBrandsRaw(e.target.value)} />
+          </Field>
+          <Field label="Paese">
+            <select className={inputCls} value={locationIdx} onChange={e => setLocationIdx(Number(e.target.value))}>
               {LOCATION_OPTIONS.map((o, i) => <option key={i} value={i}>{o.label}</option>)}
             </select>
-            <button
-              onClick={handleSearch}
-              disabled={loading || !queries.length}
-              className="bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl px-5 py-2.5 flex items-center justify-center gap-2 shadow-md shadow-indigo-200 transition-all"
-            >
-              {loading ? <><Loader2 size={14} className="animate-spin" />{progress}%</> : <><Search size={14} />Analizza</>}
-            </button>
-          </div>
+          </Field>
         </div>
-        {error && <p className="text-xs text-red-500 mt-3 flex items-center gap-1"><AlertCircle size={12} />{error}</p>}
-      </div>
+        <div className="p-4 border-t border-slate-100 space-y-2">
+          <button onClick={handleSearch} disabled={loading || !queries.length} className={`${btnPrimary} w-full justify-center`}>
+            {loading ? <><Loader2 size={14} className="animate-spin" />{progress}%</> : <><Search size={14} />Analizza</>}
+          </button>
+          {results.length > 0 && (
+            <button onClick={handleAiCheck} disabled={aiCheckLoading || loading} className={`${btnSecondary} w-full justify-center`}>
+              {aiCheckLoading ? <><Loader2 size={13} className="animate-spin" />{aiCheckProgress}%</> : <><Bot size={13} />Verifica AI (Gemini · ChatGPT)</>}
+            </button>
+          )}
+          {error && <p className="text-xs text-red-500 flex items-center gap-1"><AlertCircle size={11} />{error}</p>}
+        </div>
+      </aside>
 
-      {results.length > 0 && (
-        <>
-          {/* Results table */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-gray-900">Risultati <span className="text-gray-400 font-normal">— {totalQueries} query</span></h3>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleAiCheck}
-                  disabled={aiCheckLoading || loading}
-                  className="flex items-center gap-1.5 text-sm font-semibold px-4 py-1.5 rounded-xl border border-sky-200 text-sky-600 hover:border-sky-400 hover:bg-sky-50 disabled:opacity-50 transition-all"
-                >
-                  {aiCheckLoading ? <><Loader2 size={13} className="animate-spin" />{aiCheckProgress}%</> : <><Bot size={13} />Verifica AI</>}
-                </button>
-                <button
-                  onClick={() => { setShowStats(s => !s); setSelectedDomain(null); }}
-                  className={`flex items-center gap-1.5 text-sm font-semibold px-4 py-1.5 rounded-xl transition-all ${showStats ? "bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-200" : "border border-gray-200 text-gray-600 hover:border-indigo-400 hover:text-indigo-600"}`}
-                >
-                  <BarChart3 size={14} /> Statistiche
+      {/* ── right results panel ───────────────────────────────────────────── */}
+      <div className="flex-1 overflow-auto bg-slate-50">
+        {results.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-3">
+            <Search size={36} className="opacity-10" />
+            <p className="text-sm">Inserisci le query e clicca Analizza</p>
+          </div>
+        ) : (
+          <div className="p-5 space-y-4">
+            {/* compact metric strip */}
+            <div className="bg-white rounded-xl border border-slate-200 px-5 py-3.5 flex items-center gap-5 flex-wrap">
+              <Metric label="Query" value={totalQueries} />
+              <div className="h-7 w-px bg-slate-100" />
+              <Metric label="AI Overview" value={withAi} sub={`${totalQueries ? Math.round((withAi / totalQueries) * 100) : 0}%`} accent="text-violet-600" />
+              <Metric label="Fonti AI uniche" value={domainStats.length} accent="text-indigo-600" />
+              <div className="ml-auto flex items-center gap-2">
+                <button onClick={() => { setShowStats(s => !s); setSelectedDomain(null); }}
+                  className={`${btnSecondary} ${showStats ? "bg-indigo-50 border-indigo-200 text-indigo-700" : ""}`}>
+                  <BarChart3 size={13} />Statistiche
                 </button>
               </div>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gradient-to-r from-slate-50 to-gray-50 text-xs text-gray-500 uppercase tracking-wider border-b border-gray-100">
-                  <tr>
-                    <th className="w-8 px-4 py-3.5"></th>
-                    <th className="text-left px-4 py-3.5 font-semibold">Query</th>
-                    <th className="text-center px-4 py-3.5 font-semibold">Intento</th>
-                    <th className="text-center px-4 py-3.5 font-semibold">AI Overview</th>
-                    <th className="text-center px-4 py-3.5 font-semibold">Fonti AI</th>
-                    {domain.trim() && <><th className="text-center px-4 py-3.5 font-semibold">Dominio in AI</th><th className="text-center px-4 py-3.5 font-semibold">Dominio in Organico</th></>}
-                    {aiResults.size > 0 && <>
-                      <th className="text-center px-4 py-3.5 font-semibold border-l border-sky-100 text-sky-600">Gemini</th>
-                      <th className="text-center px-4 py-3.5 font-semibold text-teal-600">Perplexity</th>
-                      <th className="text-center px-4 py-3.5 font-semibold text-emerald-600">ChatGPT</th>
-                    </>}
-                    <th className="text-center px-4 py-3.5 font-semibold">Articolo</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {results.map((r, i) => (
-                    <React.Fragment key={i}>
-                      <tr
-                        className={`border-b border-gray-50 transition-colors ${i % 2 === 0 ? "bg-white" : "bg-slate-50/50"} ${(r.hasAiOverview || aiResults.has(r.keyword)) ? "cursor-pointer hover:bg-indigo-50/40" : ""}`}
-                        onClick={() => (r.hasAiOverview || aiResults.has(r.keyword)) && setExpandedRow(expandedRow === r.keyword ? null : r.keyword)}
-                      >
-                        <td className="px-4 py-3 text-gray-400 text-xs">{(r.hasAiOverview || aiResults.has(r.keyword)) ? (expandedRow === r.keyword ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : null}</td>
-                        <td className="px-4 py-3 font-medium text-gray-800">{r.keyword}</td>
-                        <td className="px-4 py-3 text-center">
-                          <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${r.intentColor}`}>{r.intent}</span>
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <Badge active={r.hasAiOverview} label={r.hasAiOverview ? "Sì" : "No"} />
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          {r.hasAiOverview
-                            ? <span className="font-medium text-violet-600">{r.aiSources.length} fonti</span>
-                            : <span className="text-gray-300">—</span>}
-                        </td>
-                        {domain.trim() && (
-                          <>
-                            <td className="px-4 py-3 text-center">
-                              {r.domainInAi === null ? <span className="text-gray-300">—</span> : <Badge active={r.domainInAi} label={r.domainInAi ? "Sì" : "No"} />}
-                            </td>
-                            <td className="px-4 py-3 text-center">
-                              {r.domainInOrganic === null ? <span className="text-gray-300">—</span> :
-                                r.domainInOrganic
-                                  ? <span className="font-semibold text-emerald-600">#{r.domainOrgaicPosition}</span>
+
+            {/* results table */}
+            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 border-b border-slate-100 text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                    <tr>
+                      <th className="w-8 px-3 py-2.5"></th>
+                      <th className="text-left px-3 py-2.5">Query</th>
+                      <th className="text-center px-3 py-2.5">Intento</th>
+                      <th className="text-center px-3 py-2.5">AI Overview</th>
+                      <th className="text-center px-3 py-2.5">Fonti</th>
+                      {domain.trim() && <>
+                        <th className="text-center px-3 py-2.5">In AI</th>
+                        <th className="text-center px-3 py-2.5">Organico</th>
+                      </>}
+                      {aiResults.size > 0 && <>
+                        <th className="text-center px-3 py-2.5"><span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-sky-500" />Gemini</span></th>
+                        <th className="text-center px-3 py-2.5"><span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-teal-500" />Perplexity</span></th>
+                        <th className="text-center px-3 py-2.5"><span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />ChatGPT</span></th>
+                      </>}
+                      <th className="text-center px-3 py-2.5">Articolo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {results.map((r, i) => (
+                      <React.Fragment key={i}>
+                        <tr
+                          className={`border-b border-slate-50 transition-colors ${i % 2 === 0 ? "bg-white" : "bg-slate-50/40"} ${(r.hasAiOverview || aiResults.has(r.keyword)) ? "cursor-pointer hover:bg-indigo-50/30" : ""}`}
+                          onClick={() => (r.hasAiOverview || aiResults.has(r.keyword)) && setExpandedRow(expandedRow === r.keyword ? null : r.keyword)}
+                        >
+                          <td className="px-3 py-2.5 text-slate-300">
+                            {(r.hasAiOverview || aiResults.has(r.keyword)) ? (expandedRow === r.keyword ? <ChevronDown size={13} /> : <ChevronRight size={13} />) : null}
+                          </td>
+                          <td className="px-3 py-2.5 font-medium text-slate-800">{r.keyword}</td>
+                          <td className="px-3 py-2.5 text-center">
+                            <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium border ${r.intentColor}`}>{r.intent}</span>
+                          </td>
+                          <td className="px-3 py-2.5 text-center">
+                            <Badge active={r.hasAiOverview} label={r.hasAiOverview ? "Sì" : "No"} />
+                          </td>
+                          <td className="px-3 py-2.5 text-center">
+                            {r.hasAiOverview
+                              ? <span className="text-xs font-semibold text-violet-600">{r.aiSources.length}</span>
+                              : <span className="text-slate-200 text-xs">—</span>}
+                          </td>
+                          {domain.trim() && (
+                            <>
+                              <td className="px-3 py-2.5 text-center">
+                                {r.domainInAi === null ? <span className="text-slate-200 text-xs">—</span> : <Badge active={r.domainInAi} label={r.domainInAi ? "Sì" : "No"} />}
+                              </td>
+                              <td className="px-3 py-2.5 text-center">
+                                {r.domainInOrganic === null ? <span className="text-slate-200 text-xs">—</span>
+                                  : r.domainInOrganic ? <span className="text-xs font-bold text-indigo-600">#{r.domainOrgaicPosition}</span>
                                   : <Badge active={false} label="No" />}
-                            </td>
-                          </>
-                        )}
-                        {aiResults.size > 0 && (() => {
+                              </td>
+                            </>
+                          )}
+                          {aiResults.size > 0 && (() => {
+                            const ai = aiResults.get(r.keyword);
+                            return <>
+                              <td className="px-3 py-2.5 text-center"><AiPresenceBadge cited={ai?.gemini ?? null} mention={ai?.geminiMention ?? null} platform="gemini" /></td>
+                              <td className="px-3 py-2.5 text-center"><AiPresenceBadge cited={ai?.perplexity ?? null} mention={ai?.perplexityMention ?? null} platform="perplexity" /></td>
+                              <td className="px-3 py-2.5 text-center"><AiPresenceBadge cited={ai?.chatgpt ?? null} mention={ai?.chatgptMention ?? null} platform="chatgpt" /></td>
+                            </>;
+                          })()}
+                          <td className="px-3 py-2.5 text-center" onClick={e => e.stopPropagation()}>
+                            <button onClick={() => setGeneratingFor(r)}
+                              className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">
+                              <Wand2 size={10} />Genera
+                            </button>
+                          </td>
+                        </tr>
+                        {expandedRow === r.keyword && (r.aiSources.length > 0 || aiResults.has(r.keyword)) && (() => {
                           const ai = aiResults.get(r.keyword);
-                          return <>
-                            <td className="px-4 py-3 text-center border-l border-sky-50">
-                              <AiPresenceBadge cited={ai?.gemini ?? null} mention={ai?.geminiMention ?? null} platform="gemini" />
-                            </td>
-                            <td className="px-4 py-3 text-center">
-                              <AiPresenceBadge cited={ai?.perplexity ?? null} mention={ai?.perplexityMention ?? null} platform="perplexity" />
-                            </td>
-                            <td className="px-4 py-3 text-center">
-                              <AiPresenceBadge cited={ai?.chatgpt ?? null} mention={ai?.chatgptMention ?? null} platform="chatgpt" />
-                            </td>
-                          </>;
-                        })()}
-                        <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
-                          <button
-                            onClick={() => setGeneratingFor(r)}
-                            className="inline-flex items-center gap-1 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm shadow-indigo-200 transition-all"
-                          >
-                            <Wand2 size={11} /> Genera
-                          </button>
-                        </td>
-                      </tr>
-                      {expandedRow === r.keyword && (r.aiSources.length > 0 || aiResults.has(r.keyword)) && (() => {
-                        const ai = aiResults.get(r.keyword);
-                        const totalCols = 6 + (domain.trim() ? 2 : 0) + (aiResults.size > 0 ? 3 : 0);
-                        return (
-                          <tr>
-                            <td colSpan={totalCols} className="px-6 py-4 bg-indigo-50/30 border-b border-indigo-100">
-                              <div className="space-y-4">
-                                {r.aiSources.length > 0 && (
-                                  <div>
-                                    <p className="text-xs font-semibold text-indigo-600 mb-2 uppercase tracking-wide flex items-center gap-1.5">
-                                      <Bot size={12} /> Google AI Overview — {r.aiSources.length} fonti
-                                    </p>
-                                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                                      {r.aiSources.map((s, j) => (
-                                        <a key={j} href={s.url} target="_blank" rel="noopener noreferrer"
-                                          className="flex items-start gap-2 p-2.5 rounded-xl border border-gray-200 bg-white hover:border-indigo-200 text-xs transition-all">
-                                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                                          <img src={`https://www.google.com/s2/favicons?domain=${s.domain}&sz=32`} alt="" width={14} height={14} className="rounded-sm mt-0.5 shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                                          <div className="min-w-0">
-                                            <p className="font-medium text-gray-700 leading-tight truncate">{s.title}</p>
-                                            <p className="text-gray-400 mt-0.5 truncate">{s.domain}</p>
-                                          </div>
-                                        </a>
+                          const cols = 6 + (domain.trim() ? 2 : 0) + (aiResults.size > 0 ? 3 : 0);
+                          return (
+                            <tr>
+                              <td colSpan={cols} className="px-4 py-4 bg-slate-50/60 border-b border-slate-100">
+                                <div className="space-y-3">
+                                  {r.aiSources.length > 0 && (
+                                    <div>
+                                      <p className="text-[10px] font-bold uppercase tracking-widest text-violet-500 mb-2">
+                                        Google AI Overview · {r.aiSources.length} fonti
+                                      </p>
+                                      <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5">
+                                        {r.aiSources.map((s, j) => (
+                                          <a key={j} href={s.url} target="_blank" rel="noopener noreferrer"
+                                            className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg border border-slate-100 bg-white hover:border-violet-200 text-xs transition-colors">
+                                            <Fav domain={s.domain} size={12} />
+                                            <div className="min-w-0">
+                                              <p className="font-medium text-slate-700 truncate">{s.title.length > 30 ? s.title.slice(0, 30) + "…" : s.title}</p>
+                                              <p className="text-slate-400 truncate">{s.domain}</p>
+                                            </div>
+                                          </a>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {ai && (
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                      {([
+                                        { label: "Gemini",     sources: ai.geminiSources,     border: "border-sky-100",     labelCls: "text-sky-500",     hover: "hover:bg-sky-50" },
+                                        { label: "Perplexity", sources: ai.perplexitySources, border: "border-teal-100",    labelCls: "text-teal-500",    hover: "hover:bg-teal-50" },
+                                        { label: "ChatGPT",    sources: ai.chatgptSources,    border: "border-emerald-100", labelCls: "text-emerald-500", hover: "hover:bg-emerald-50" },
+                                      ] as const).map(({ label, sources, border, labelCls, hover }) => (
+                                        <div key={label} className={`bg-white rounded-xl border ${border} p-3`}>
+                                          <p className={`text-[10px] font-bold uppercase tracking-widest ${labelCls} mb-2`}>
+                                            {label} {sources.length > 0 ? `· ${sources.length} fonti` : ""}
+                                          </p>
+                                          {sources.length === 0
+                                            ? <p className="text-xs text-slate-400 italic">Nessuna fonte citata</p>
+                                            : <div className="space-y-1">
+                                                {sources.map((url, j) => {
+                                                  const d = clientExtractDomain(url);
+                                                  return (
+                                                    <a key={j} href={url} target="_blank" rel="noopener noreferrer"
+                                                      className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs text-slate-600 ${hover} transition-colors`}>
+                                                      <Fav domain={d} size={11} />
+                                                      <span className="truncate">{d}</span>
+                                                    </a>
+                                                  );
+                                                })}
+                                              </div>}
+                                        </div>
                                       ))}
                                     </div>
-                                  </div>
-                                )}
-                                {ai && (
-                                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                    {/* Gemini */}
-                                    <div>
-                                      <p className="text-xs font-semibold text-sky-600 mb-2 uppercase tracking-wide flex items-center gap-1.5">
-                                        <Bot size={12} /> Gemini {ai.geminiSources.length > 0 ? `— ${ai.geminiSources.length} fonti` : ""}
-                                      </p>
-                                      {ai.geminiSources.length === 0
-                                        ? <p className="text-xs text-gray-400 italic">Nessuna fonte citata</p>
-                                        : <div className="space-y-1.5">
-                                          {ai.geminiSources.map((url, j) => {
-                                            const d = clientExtractDomain(url);
-                                            return (
-                                              <a key={j} href={url} target="_blank" rel="noopener noreferrer"
-                                                className="flex items-center gap-2 p-2 rounded-lg border border-gray-200 bg-white hover:border-sky-200 text-xs transition-all">
-                                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                                <img src={`https://www.google.com/s2/favicons?domain=${d}&sz=32`} alt="" width={12} height={12} className="rounded-sm shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                                                <span className="truncate text-gray-600">{d}</span>
-                                              </a>
-                                            );
-                                          })}
-                                        </div>
-                                      }
-                                    </div>
-                                    {/* Perplexity */}
-                                    <div>
-                                      <p className="text-xs font-semibold text-teal-600 mb-2 uppercase tracking-wide flex items-center gap-1.5">
-                                        <Bot size={12} /> Perplexity {ai.perplexitySources.length > 0 ? `— ${ai.perplexitySources.length} fonti` : ""}
-                                      </p>
-                                      {ai.perplexitySources.length === 0
-                                        ? <p className="text-xs text-gray-400 italic">Nessuna fonte citata</p>
-                                        : <div className="space-y-1.5">
-                                          {ai.perplexitySources.map((url, j) => {
-                                            const d = clientExtractDomain(url);
-                                            return (
-                                              <a key={j} href={url} target="_blank" rel="noopener noreferrer"
-                                                className="flex items-center gap-2 p-2 rounded-lg border border-gray-200 bg-white hover:border-teal-200 text-xs transition-all">
-                                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                                <img src={`https://www.google.com/s2/favicons?domain=${d}&sz=32`} alt="" width={12} height={12} className="rounded-sm shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                                                <span className="truncate text-gray-600">{d}</span>
-                                              </a>
-                                            );
-                                          })}
-                                        </div>
-                                      }
-                                    </div>
-                                    {/* ChatGPT */}
-                                    <div>
-                                      <p className="text-xs font-semibold text-emerald-600 mb-2 uppercase tracking-wide flex items-center gap-1.5">
-                                        <Bot size={12} /> ChatGPT {ai.chatgptSources.length > 0 ? `— ${ai.chatgptSources.length} fonti` : ""}
-                                      </p>
-                                      {ai.chatgptSources.length === 0
-                                        ? <p className="text-xs text-gray-400 italic">Nessuna fonte citata</p>
-                                        : <div className="space-y-1.5">
-                                          {ai.chatgptSources.map((url, j) => {
-                                            const d = clientExtractDomain(url);
-                                            return (
-                                              <a key={j} href={url} target="_blank" rel="noopener noreferrer"
-                                                className="flex items-center gap-2 p-2 rounded-lg border border-gray-200 bg-white hover:border-emerald-200 text-xs transition-all">
-                                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                                <img src={`https://www.google.com/s2/favicons?domain=${d}&sz=32`} alt="" width={12} height={12} className="rounded-sm shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                                                <span className="truncate text-gray-600">{d}</span>
-                                              </a>
-                                            );
-                                          })}
-                                        </div>
-                                      }
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })()}
-                    </React.Fragment>
-                  ))}
-                </tbody>
-              </table>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })()}
+                      </React.Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
+        )}
+      </div>
 
-        </>
-      )}
-
-      {/* Statistics modal */}
+      {/* ── statistics modal ─────────────────────────────────────────────────── */}
       {showStats && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => { setShowStats(false); setSelectedDomain(null); }}>
-          <div className="bg-gray-50 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
-            {/* Modal header */}
-            <div className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between shrink-0">
-              <h2 className="font-bold text-gray-900">Statistiche</h2>
-              <button onClick={() => { setShowStats(false); setSelectedDomain(null); }} className="text-gray-400 hover:text-gray-700 p-1 rounded-lg hover:bg-gray-100">
-                <XCircle size={20} />
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+          onClick={() => { setShowStats(false); setSelectedDomain(null); }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden"
+            onClick={e => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+              <h2 className="font-semibold text-slate-900">Statistiche ricerca</h2>
+              <button onClick={() => { setShowStats(false); setSelectedDomain(null); }} className="text-slate-400 hover:text-slate-700">
+                <XCircle size={18} />
               </button>
             </div>
-
             <div className="overflow-y-auto p-6 space-y-5">
-              {/* Summary cards */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <StatCard icon={<Search size={18} className="text-white" />} label="Query analizzate" value={totalQueries} gradient="bg-gradient-to-br from-indigo-500 to-indigo-700" />
-                <StatCard icon={<Bot size={18} className="text-white" />} label="Con AI Overview" value={`${withAi} (${totalQueries ? Math.round(withAi / totalQueries * 100) : 0}%)`} gradient="bg-gradient-to-br from-violet-500 to-violet-700" />
-                <StatCard icon={<Sparkles size={18} className="text-white" />} label="Domini unici in AI" value={domainStats.length} gradient="bg-gradient-to-br from-amber-400 to-orange-500" />
-                <StatCard icon={<Globe size={18} className="text-white" />} label="Intento prevalente" value={Object.entries(intentCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "—"} gradient="bg-gradient-to-br from-emerald-500 to-teal-600" />
+              {/* summary */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {[
+                  { label: "Query analizzate", value: totalQueries, accent: "text-slate-900" },
+                  { label: "Con AI Overview", value: `${withAi} · ${totalQueries ? Math.round(withAi / totalQueries * 100) : 0}%`, accent: "text-violet-700" },
+                  { label: "Domini unici AI", value: domainStats.length, accent: "text-indigo-700" },
+                  { label: "Intento prevalente", value: Object.entries(intentCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "—", accent: "text-slate-700" },
+                ].map((m, i) => (
+                  <div key={i} className="bg-slate-50 rounded-xl border border-slate-200 p-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">{m.label}</p>
+                    <p className={`text-xl font-bold mt-1 ${m.accent}`}>{m.value}</p>
+                  </div>
+                ))}
               </div>
-
-              {/* Intento breakdown */}
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-                <h3 className="text-sm font-semibold text-gray-900 mb-3">Distribuzione intento</h3>
+              {/* intent distribution */}
+              <div className="bg-slate-50 rounded-xl border border-slate-200 p-4">
+                <h3 className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-3">Distribuzione intento</h3>
                 <div className="flex flex-wrap gap-2">
                   {Object.entries(intentCounts).sort((a, b) => b[1] - a[1]).map(([intent, count]) => {
                     const r = results.find(r => r.intent === intent);
                     return (
-                      <span key={intent} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium ${r?.intentColor ?? "bg-gray-100 text-gray-600"}`}>
+                      <span key={intent} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border ${r?.intentColor ?? "bg-white text-slate-600 border-slate-200"}`}>
                         {intent} <span className="font-bold">{count}</span>
                       </span>
                     );
                   })}
                 </div>
               </div>
-
-              {/* Top domains + detail panel */}
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
-                  <Sparkles size={15} className="text-violet-500" />
-                  <h3 className="text-sm font-semibold text-gray-900">Domini più citati in AI Overview</h3>
-                  <span className="text-xs text-gray-400 ml-1">— clicca per vedere gli URL</span>
+              {/* top domains panel */}
+              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
+                  <Sparkles size={14} className="text-violet-500" />
+                  <h3 className="text-sm font-semibold text-slate-900">Domini più citati in AI Overview</h3>
+                  <span className="text-xs text-slate-400 ml-1">— clicca per vedere gli URL</span>
                 </div>
-                <div className="flex" style={{ minHeight: 320 }}>
-                  {/* Domain list */}
-                  <div className="w-72 shrink-0 border-r border-gray-100 divide-y divide-gray-50 overflow-y-auto max-h-[400px]">
-                    {domainStats.length === 0 && <p className="px-5 py-6 text-sm text-gray-400 text-center">Nessuna fonte AI.</p>}
+                <div className="flex" style={{ minHeight: 280 }}>
+                  <div className="w-64 shrink-0 border-r border-slate-100 divide-y divide-slate-50 overflow-y-auto max-h-[360px]">
+                    {domainStats.length === 0 && <p className="px-4 py-6 text-sm text-slate-400 text-center">Nessuna fonte AI</p>}
                     {domainStats.map((d, i) => {
                       const pct = withAi ? Math.round((d.queryCount / withAi) * 100) : 0;
                       return (
                         <button key={i} onClick={() => setSelectedDomain(selectedDomain === d.domain ? null : d.domain)}
-                          className={`w-full text-left px-4 py-3 flex items-center gap-3 transition-colors ${selectedDomain === d.domain ? "bg-indigo-50" : "hover:bg-gray-50"}`}>
-                          <span className="text-xs text-gray-400 font-mono w-5 shrink-0">{i + 1}</span>
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={`https://www.google.com/s2/favicons?domain=${d.domain}&sz=32`} alt="" width={16} height={16} className="rounded-sm shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                          className={`w-full text-left px-4 py-3 flex items-center gap-2.5 transition-colors ${selectedDomain === d.domain ? "bg-indigo-50" : "hover:bg-slate-50"}`}>
+                          <span className="text-[10px] text-slate-300 font-mono w-4 shrink-0">{i + 1}</span>
+                          <Fav domain={d.domain} />
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between mb-1">
-                              <span className={`text-sm font-medium truncate ${selectedDomain === d.domain ? "text-indigo-700" : "text-gray-800"}`}>{d.domain}</span>
-                              <span className="text-xs text-gray-400 shrink-0 ml-1">{d.queryCount} · {pct}%</span>
+                              <span className={`text-xs font-medium truncate ${selectedDomain === d.domain ? "text-indigo-700" : "text-slate-800"}`}>{d.domain}</span>
+                              <span className="text-[10px] text-slate-400 shrink-0 ml-1">{pct}%</span>
                             </div>
-                            <div className="w-full bg-gray-100 rounded-full h-1.5">
-                              <div className="h-1.5 rounded-full bg-violet-400" style={{ width: `${pct}%` }} />
+                            <div className="w-full bg-slate-100 rounded-full h-1">
+                              <div className="h-1 rounded-full bg-violet-400" style={{ width: `${pct}%` }} />
                             </div>
                           </div>
-                          <ChevronRight size={13} className={`shrink-0 text-gray-300 ${selectedDomain === d.domain ? "text-indigo-400" : ""}`} />
                         </button>
                       );
                     })}
                   </div>
-
-                  {/* URL detail */}
-                  <div className="flex-1 p-5 overflow-y-auto max-h-[400px]">
+                  <div className="flex-1 p-4 overflow-y-auto max-h-[360px]">
                     {!selectedDomain ? (
-                      <div className="flex flex-col items-center justify-center h-full text-gray-400 text-sm gap-2">
-                        <Link size={28} className="opacity-20" />
-                        <p>Seleziona un dominio per vedere gli URL</p>
+                      <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-2">
+                        <Link size={22} className="opacity-20" />
+                        <p className="text-sm">Seleziona un dominio</p>
                       </div>
                     ) : (
-                      <div className="space-y-5">
+                      <div className="space-y-4">
                         <div className="flex items-center gap-2">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={`https://www.google.com/s2/favicons?domain=${selectedDomain}&sz=32`} alt="" width={18} height={18} className="rounded-sm" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                          <h4 className="font-bold text-gray-900">{selectedDomain}</h4>
-                          <span className="text-xs text-gray-400 ml-1">{selectedDomainData?.queryCount} query</span>
+                          <Fav domain={selectedDomain} size={16} />
+                          <h4 className="font-semibold text-slate-900 text-sm">{selectedDomain}</h4>
+                          <span className="text-xs text-slate-400">{selectedDomainData?.queryCount} query</span>
                         </div>
                         {Object.entries(urlsByQuery).map(([query, urls]) => (
                           <div key={query} className="space-y-1.5">
-                            <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide">{query}</p>
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-500">{query}</p>
                             {urls.map((u, i) => (
                               <a key={i} href={u.url} target="_blank" rel="noopener noreferrer"
-                                className="flex items-start gap-2 p-2.5 rounded-xl border border-gray-100 hover:border-indigo-200 bg-white transition-colors">
-                                <Link size={12} className="text-indigo-400 mt-0.5 shrink-0" />
+                                className="flex items-start gap-2 p-2.5 rounded-lg border border-slate-100 hover:border-indigo-200 bg-white transition-colors">
+                                <Link size={11} className="text-indigo-400 mt-0.5 shrink-0" />
                                 <div className="min-w-0">
-                                  <p className="text-sm font-medium text-indigo-600 hover:underline truncate">{u.title}</p>
-                                  <p className="text-xs text-gray-400 truncate mt-0.5">{u.url}</p>
+                                  <p className="text-xs font-medium text-indigo-600 hover:underline truncate">{u.title}</p>
+                                  <p className="text-[10px] text-slate-400 truncate mt-0.5">{u.url}</p>
                                 </div>
                               </a>
                             ))}
@@ -1478,17 +1304,12 @@ function SearchView() {
         </div>
       )}
 
-      {generatingFor && (
-        <ArticleGenerator
-          result={generatingFor}
-          onClose={() => setGeneratingFor(null)}
-        />
-      )}
+      {generatingFor && <ArticleGenerator result={generatingFor} onClose={() => setGeneratingFor(null)} />}
     </div>
   );
 }
 
-// ─── Main App ─────────────────────────────────────────────────────────────────
+// ── Main Dashboard ────────────────────────────────────────────────────────────
 export default function Dashboard() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
@@ -1521,30 +1342,23 @@ export default function Dashboard() {
   async function selectProject(p: Project) {
     setSelectedProject({ ...p, brands: p.brands || "[]" });
     setKeywordsRaw(JSON.parse(p.keywords).join("\n"));
-    setSelectedRun(null);
-    setRunResults([]);
+    setSelectedRun(null); setRunResults([]);
     await loadRuns(p.id);
     setView("project");
   }
 
   async function selectRun(run: Run) {
-    setSelectedRun(run);
-    setCurrentRunId(run.id);
+    setSelectedRun(run); setCurrentRunId(run.id);
     const res = await fetch(`/api/projects/${run.project_id}/runs/${run.id}`);
     const data = await res.json();
     setRunResults(data.results || []);
-
-    // Load previous run for comparison
     const currentIdx = runs.findIndex(r => r.id === run.id);
     const prevRun = runs[currentIdx + 1];
     if (prevRun) {
       const prevRes = await fetch(`/api/projects/${prevRun.project_id}/runs/${prevRun.id}`);
       const prevData = await prevRes.json();
       setPrevRunResults(prevData.results || []);
-    } else {
-      setPrevRunResults([]);
-    }
-
+    } else { setPrevRunResults([]); }
     setView("run");
   }
 
@@ -1552,35 +1366,20 @@ export default function Dashboard() {
     if (!selectedProject) return;
     const keywords = keywordsRaw.split("\n").map(k => k.trim()).filter(Boolean);
     if (!keywords.length) return;
-
-    // Save updated keywords to project
     await fetch(`/api/projects/${selectedProject.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...selectedProject, keywords }),
     });
-
-    // Capture previous run results for comparison
     if (runs.length > 0) {
-      const lastRun = runs[0];
       try {
-        const prevRes = await fetch(`/api/projects/${lastRun.project_id}/runs/${lastRun.id}`);
-        const prevData = await prevRes.json();
-        setPrevRunResults(prevData.results || []);
-      } catch {
-        setPrevRunResults([]);
-      }
-    } else {
-      setPrevRunResults([]);
-    }
-
-    setError("");
-    setLoading(true);
-    setProgress(0);
-
+        const prevRes = await fetch(`/api/projects/${runs[0].project_id}/runs/${runs[0].id}`);
+        setPrevRunResults((await prevRes.json()).results || []);
+      } catch { setPrevRunResults([]); }
+    } else { setPrevRunResults([]); }
+    setError(""); setLoading(true); setProgress(0);
     const BATCH = 10;
     const allResults: KeywordResult[] = [];
-
     for (let i = 0; i < keywords.length; i += BATCH) {
       const batch = keywords.slice(i, i + BATCH);
       try {
@@ -1590,41 +1389,29 @@ export default function Dashboard() {
           body: JSON.stringify({ keywords: batch, domain: selectedProject.domain, location: selectedProject.location, language: selectedProject.language }),
         });
         if (!res.ok) throw new Error((await res.json()).error || "Errore API");
-        const data = await res.json();
-        allResults.push(...data.results);
+        allResults.push(...(await res.json()).results);
         setProgress(Math.min(100, Math.round(((i + BATCH) / keywords.length) * 100)));
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Errore sconosciuto");
-        break;
-      }
+      } catch (e) { setError(e instanceof Error ? e.message : "Errore sconosciuto"); break; }
     }
-
-    // Save run to DB
     const runSaveRes = await fetch(`/api/projects/${selectedProject.id}/runs`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ results: allResults, location: selectedProject.location, language: selectedProject.language }),
     });
-    const runSaveData = await runSaveRes.json();
-    const savedRun = runSaveData.run ?? null;
-
+    const savedRun = (await runSaveRes.json()).run ?? null;
     setRunResults(allResults);
     setCurrentRunId(savedRun?.id ?? null);
     await loadRuns(selectedProject.id);
     setSelectedRun(savedRun);
-    setLoading(false);
-    setView("run");
+    setLoading(false); setView("run");
   }
 
   async function handleAiCheck() {
     if (!selectedProject || !runResults.length) return;
-    setAiCheckLoading(true);
-    setAiCheckProgress(0);
-
+    setAiCheckLoading(true); setAiCheckProgress(0);
     const keywords = runResults.map(r => r.keyword);
     const BATCH = 3;
     const allAiResults: AiPlatformResult[] = [];
-
     for (let i = 0; i < keywords.length; i += BATCH) {
       const batch = keywords.slice(i, i + BATCH);
       try {
@@ -1634,31 +1421,15 @@ export default function Dashboard() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ keywords: batch, domain: selectedProject.domain, brands: projectBrands }),
         });
-        if (res.ok) {
-          const data = await res.json();
-          allAiResults.push(...data.results);
-        }
+        if (res.ok) allAiResults.push(...(await res.json()).results);
       } catch { /* skip batch */ }
       setAiCheckProgress(Math.min(100, Math.round(((i + BATCH) / keywords.length) * 100)));
     }
-
     setRunResults(prev => prev.map(r => {
       const ai = allAiResults.find(a => a.keyword === r.keyword);
       if (!ai) return r;
-      return {
-        ...r,
-        domainInGemini: ai.gemini,
-        domainInPerplexity: ai.perplexity,
-        domainInChatgpt: ai.chatgpt,
-        geminiMention: ai.geminiMention,
-        perplexityMention: ai.perplexityMention,
-        chatgptMention: ai.chatgptMention,
-        geminiSources: ai.geminiSources,
-        perplexitySources: ai.perplexitySources,
-        chatgptSources: ai.chatgptSources,
-      };
+      return { ...r, domainInGemini: ai.gemini, domainInPerplexity: ai.perplexity, domainInChatgpt: ai.chatgpt, geminiMention: ai.geminiMention, perplexityMention: ai.perplexityMention, chatgptMention: ai.chatgptMention, geminiSources: ai.geminiSources, perplexitySources: ai.perplexitySources, chatgptSources: ai.chatgptSources };
     }));
-
     const runId = currentRunId ?? selectedRun?.id;
     if (runId) {
       await fetch(`/api/projects/${selectedProject.id}/runs/${runId}`, {
@@ -1667,7 +1438,6 @@ export default function Dashboard() {
         body: JSON.stringify({ aiResults: allAiResults }),
       });
     }
-
     setAiCheckLoading(false);
   }
 
@@ -1682,222 +1452,240 @@ export default function Dashboard() {
   const withAi = runResults.filter(r => r.hasAiOverview).length;
   const withDomain = runResults.filter(r => r.domainInOrganic).length;
   const withDomainInAi = runResults.filter(r => r.domainInAiSources).length;
-  const aiPct = total ? Math.round((withAi / total) * 100) : 0;
-  const domainPct = total ? Math.round((withDomain / total) * 100) : 0;
-  const withDomainInGemini = runResults.filter(r => r.domainInGemini === true).length;
-  const withDomainInPerplexity = runResults.filter(r => r.domainInPerplexity === true).length;
-  const withDomainInChatgpt = runResults.filter(r => r.domainInChatgpt === true).length;
-  const hasCheckedAi = runResults.some(r => r.domainInGemini !== null && r.domainInGemini !== undefined);
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      {/* Header */}
-      <header className="bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-700 px-6 py-3.5 flex items-center gap-3 shadow-lg shadow-indigo-500/20">
-        <button onClick={() => { setMainTab("search"); }} className="flex items-center gap-2.5">
-          <div className="bg-white/15 backdrop-blur-sm p-2 rounded-xl border border-white/20">
-            <BarChart3 size={20} className="text-white" />
+
+      {/* ── app header ──────────────────────────────────────────────────────── */}
+      <header className="h-12 bg-slate-900 flex items-center px-5 gap-4 shrink-0 border-b border-slate-800">
+        {/* logo */}
+        <button onClick={() => setMainTab("search")} className="flex items-center gap-2 shrink-0">
+          <div className="w-6 h-6 rounded-md bg-indigo-500 flex items-center justify-center">
+            <BarChart3 size={13} className="text-white" />
           </div>
-          <h1 className="text-lg font-bold text-white tracking-tight">AI Sight</h1>
+          <span className="text-sm font-bold text-white tracking-tight">AI Sight</span>
         </button>
 
-        {/* Main tabs */}
-        <div className="flex gap-1 ml-4 bg-white/10 backdrop-blur-sm rounded-xl p-1 border border-white/10">
-          <button
-            onClick={() => setMainTab("search")}
-            className={`px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all ${mainTab === "search" ? "bg-white text-indigo-700 shadow-sm" : "text-white/80 hover:text-white hover:bg-white/10"}`}
-          >
-            <Search size={13} className="inline mr-1.5" />Ricerca
-          </button>
-          <button
-            onClick={() => { setMainTab("projects"); setView("projects"); }}
-            className={`px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all ${mainTab === "projects" ? "bg-white text-indigo-700 shadow-sm" : "text-white/80 hover:text-white hover:bg-white/10"}`}
-          >
-            <FolderOpen size={13} className="inline mr-1.5" />Progetti
-          </button>
-        </div>
+        {/* main tabs */}
+        <nav className="flex gap-0.5 bg-slate-800 rounded-lg p-0.5 ml-2">
+          {([
+            { key: "search", label: "Ricerca", icon: <Search size={12} /> },
+            { key: "projects", label: "Progetti", icon: <FolderOpen size={12} /> },
+          ] as const).map(t => (
+            <button key={t.key}
+              onClick={() => { setMainTab(t.key); if (t.key === "projects") setView("projects"); }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                mainTab === t.key ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-white"
+              }`}>
+              {t.icon}{t.label}
+            </button>
+          ))}
+        </nav>
 
+        {/* breadcrumb */}
         {mainTab === "projects" && selectedProject && (
-          <>
-            <ChevronRight size={16} className="text-white/40" />
-            <button onClick={() => setView("project")} className="text-sm text-white/80 hover:text-white font-medium">{selectedProject.name}</button>
-          </>
-        )}
-        {mainTab === "projects" && view === "run" && selectedRun && (
-          <>
-            <ChevronRight size={16} className="text-white/40" />
-            <span className="text-sm text-white/60">{new Date(selectedRun.run_at).toLocaleString("it-IT")}</span>
-          </>
-        )}
-        {mainTab === "projects" && view === "run" && !selectedRun && loading && (
-          <>
-            <ChevronRight size={16} className="text-white/40" />
-            <span className="text-sm text-white/60">Nuova analisi</span>
-          </>
+          <div className="flex items-center gap-2 text-xs ml-2">
+            <span className="text-slate-600">/</span>
+            <button onClick={() => setView("project")} className="text-slate-400 hover:text-white transition-colors">{selectedProject.name}</button>
+            {view === "run" && selectedRun && (
+              <>
+                <span className="text-slate-700">/</span>
+                <span className="text-slate-500">{new Date(selectedRun.run_at).toLocaleDateString("it-IT", { day: "2-digit", month: "short", year: "2-digit" })}</span>
+              </>
+            )}
+            {view === "run" && !selectedRun && loading && (
+              <>
+                <span className="text-slate-700">/</span>
+                <span className="text-slate-500 flex items-center gap-1"><Loader2 size={10} className="animate-spin" />Analisi in corso</span>
+              </>
+            )}
+          </div>
         )}
       </header>
 
+      {/* ── search tab ──────────────────────────────────────────────────────── */}
       {mainTab === "search" && (
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 flex overflow-hidden">
           <SearchView />
         </div>
       )}
 
-      <div className={`flex flex-1 ${mainTab === "search" ? "hidden" : ""}`}>
-        {/* Sidebar */}
-        {view !== "projects" && selectedProject && (
-          <aside className="w-64 bg-white border-r border-gray-100 flex flex-col shrink-0 shadow-sm">
-            <div className="p-4 border-b border-gray-100">
-              <button onClick={() => setView("projects")} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 mb-3">
-                <ChevronLeft size={13} /> Tutti i progetti
-              </button>
-              <div className="font-semibold text-gray-900 text-sm">{selectedProject.name}</div>
-              <div className="text-xs text-gray-400 mt-0.5">{selectedProject.domain}</div>
-            </div>
+      {/* ── projects tab ────────────────────────────────────────────────────── */}
+      {mainTab === "projects" && (
+        <div className={`flex flex-1 overflow-hidden`}>
 
-            {/* Analyze button */}
-            <div className="p-3 border-b border-gray-100">
-              <button onClick={handleAnalyze} disabled={loading}
-                className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl px-3 py-2 flex items-center justify-center gap-2 shadow-sm shadow-indigo-200">
-                {loading ? <><Loader2 size={13} className="animate-spin" />{progress}%</> : <><Search size={13} /> Nuova analisi</>}
-              </button>
-              {error && <p className="text-xs text-red-500 mt-2">{error}</p>}
-            </div>
-
-            {/* Runs history */}
-            <div className="flex-1 overflow-y-auto p-3 space-y-1">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide px-2 mb-2">Storico analisi</p>
-              {runs.length === 0 && <p className="text-xs text-gray-400 px-2">Nessuna analisi ancora.</p>}
-              {runs.map(run => (
-                <button key={run.id} onClick={() => selectRun(run)}
-                  className={`w-full text-left px-3 py-2.5 rounded-xl transition-colors ${selectedRun?.id === run.id ? "bg-indigo-50 text-indigo-700" : "hover:bg-gray-50 text-gray-700"}`}>
-                  <div className="flex items-center gap-1.5 text-xs font-medium">
-                    <Clock size={11} className="text-gray-400" />
-                    {new Date(run.run_at).toLocaleDateString("it-IT", { day: "2-digit", month: "short", year: "numeric" })}
-                  </div>
-                  <div className="flex gap-2 mt-1 text-xs text-gray-400">
-                    <span>{run.total} kw</span>
-                    <span className="text-violet-500">{run.with_ai} AI</span>
-                    <span className="text-emerald-500">{run.with_domain} pos</span>
-                  </div>
+          {/* sidebar */}
+          {view !== "projects" && selectedProject && (
+            <aside className="w-56 bg-white border-r border-slate-200 flex flex-col shrink-0">
+              <div className="p-4 border-b border-slate-100">
+                <button onClick={() => setView("projects")}
+                  className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-700 mb-3 transition-colors">
+                  <ChevronLeft size={12} />Tutti i progetti
                 </button>
-              ))}
-            </div>
-
-            {/* Keywords editor */}
-            <div className="border-t border-gray-100 p-3">
-              <button onClick={() => setEditingKeywords(!editingKeywords)} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800 font-medium w-full">
-                <Pencil size={11} /> Modifica keywords
-                {editingKeywords ? <ChevronDown size={11} className="ml-auto" /> : <ChevronRight size={11} className="ml-auto" />}
-              </button>
-              {editingKeywords && (
-                <textarea className="mt-2 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs font-mono outline-none focus:border-indigo-400 resize-none" rows={8}
-                  value={keywordsRaw} onChange={e => setKeywordsRaw(e.target.value)} />
-              )}
-            </div>
-          </aside>
-        )}
-
-        <main className="flex-1 overflow-auto">
-          {/* Projects list */}
-          {view === "projects" && (
-            <div className="max-w-4xl mx-auto px-4 py-8">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold text-gray-900">Progetti</h2>
-                <button onClick={() => setShowNewProject(true)} className="bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white text-sm font-semibold rounded-xl px-4 py-2 flex items-center gap-2 shadow-sm shadow-indigo-200">
-                  <Plus size={15} /> Nuovo progetto
-                </button>
+                <p className="font-semibold text-slate-900 text-sm truncate">{selectedProject.name}</p>
+                <p className="text-xs text-slate-400 mt-0.5 truncate">{selectedProject.domain}</p>
               </div>
-              {projects.length === 0 ? (
-                <div className="text-center py-20 text-gray-400">
-                  <FolderOpen size={40} className="mx-auto mb-3 opacity-30" />
-                  <p className="text-sm">Nessun progetto ancora.</p>
-                  <button onClick={() => setShowNewProject(true)} className="mt-3 text-indigo-600 text-sm font-medium hover:underline">Crea il primo progetto →</button>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {projects.map(p => (
-                    <div key={p.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 hover:border-indigo-200 transition-colors cursor-pointer group" onClick={() => selectProject(p)}>
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <h3 className="font-semibold text-gray-900">{p.name}</h3>
-                          <p className="text-sm text-gray-400 mt-0.5">{p.domain}</p>
-                        </div>
-                        <button onClick={e => { e.stopPropagation(); deleteProject(p.id); }} className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-300 hover:text-red-500 p-1">
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                      <div className="mt-3 flex items-center gap-3 text-xs text-gray-400">
-                        <span>{JSON.parse(p.keywords).length} keywords</span>
-                        <span>·</span>
-                        <span>{LOCATION_OPTIONS.find(l => l.gl === p.location)?.label || p.location}</span>
-                        <span>·</span>
-                        <span>Creato {new Date(p.created_at).toLocaleDateString("it-IT")}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
 
-          {/* Project view (no run selected) */}
-          {view === "project" && selectedProject && (
-            <div className="max-w-4xl mx-auto px-4 py-8">
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center">
-                <Search size={40} className="mx-auto mb-3 text-indigo-200" />
-                <h3 className="font-semibold text-gray-700 mb-1">Pronto per l&apos;analisi</h3>
-                <p className="text-sm text-gray-400">Clicca &quot;Nuova analisi&quot; nella sidebar per avviare.</p>
-                {runs.length > 0 && (
-                  <p className="text-sm text-gray-400 mt-2">Oppure seleziona un&apos;analisi precedente dalla sidebar.</p>
+              <div className="p-3 border-b border-slate-100">
+                <button onClick={handleAnalyze} disabled={loading}
+                  className={`${btnPrimary} w-full justify-center text-xs`}>
+                  {loading ? <><Loader2 size={12} className="animate-spin" />{progress}%</> : <><Search size={12} />Nuova analisi</>}
+                </button>
+                {error && <p className="text-[11px] text-red-500 mt-2 flex items-center gap-1"><AlertCircle size={10} />{error}</p>}
+              </div>
+
+              <div className="flex-1 overflow-y-auto">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 px-4 pt-4 pb-2">Storico</p>
+                {runs.length === 0 && <p className="text-xs text-slate-400 px-4 pb-4">Nessuna analisi ancora</p>}
+                {runs.map(run => (
+                  <button key={run.id} onClick={() => selectRun(run)}
+                    className={`w-full text-left px-4 py-2.5 transition-colors border-l-2 ${
+                      selectedRun?.id === run.id ? "border-indigo-500 bg-indigo-50" : "border-transparent hover:bg-slate-50 hover:border-slate-300"
+                    }`}>
+                    <div className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                      <Clock size={10} className="text-slate-400" />
+                      {new Date(run.run_at).toLocaleDateString("it-IT", { day: "2-digit", month: "short", year: "numeric" })}
+                    </div>
+                    <div className="flex gap-2 mt-0.5 text-[10px]">
+                      <span className="text-slate-400">{run.total} kw</span>
+                      <span className="text-violet-500">{run.with_ai} AI</span>
+                      <span className="text-emerald-500">{run.with_domain} pos</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              <div className="border-t border-slate-100 p-3">
+                <button onClick={() => setEditingKeywords(!editingKeywords)}
+                  className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800 font-medium w-full">
+                  <Pencil size={11} />Modifica keywords
+                  {editingKeywords ? <ChevronDown size={11} className="ml-auto" /> : <ChevronRight size={11} className="ml-auto" />}
+                </button>
+                {editingKeywords && (
+                  <textarea className="mt-2 w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono outline-none focus:border-indigo-400 resize-none bg-white"
+                    rows={8} value={keywordsRaw} onChange={e => setKeywordsRaw(e.target.value)} />
                 )}
               </div>
-            </div>
+            </aside>
           )}
 
-          {/* Run view */}
-          {view === "run" && runResults.length > 0 && selectedProject && (
-            <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <StatCard icon={<Search size={18} className="text-white" />} label="Keywords analizzate" value={total} gradient="bg-gradient-to-br from-indigo-500 to-indigo-700"
-                  delta={prevRunResults.length ? total - prevRunResults.filter(r => r.status === "success").length : undefined} />
-                <StatCard icon={<Bot size={18} className="text-white" />} label="Con AI Overview" value={`${withAi} (${aiPct}%)`} sub="delle keyword" gradient="bg-gradient-to-br from-violet-500 to-violet-700"
-                  delta={prevRunResults.length ? withAi - prevRunResults.filter(r => r.hasAiOverview).length : undefined} />
-                <StatCard icon={<Globe size={18} className="text-white" />} label="Dominio in organico" value={`${withDomain} (${domainPct}%)`} sub="top 10" gradient="bg-gradient-to-br from-emerald-500 to-teal-600"
-                  delta={prevRunResults.length ? withDomain - prevRunResults.filter(r => r.domainInOrganic).length : undefined} />
-                <StatCard icon={<CheckCircle2 size={18} className="text-white" />} label="Dominio in AI" value={withDomainInAi} sub="citato come fonte" gradient="bg-gradient-to-br from-amber-400 to-orange-500"
-                  delta={prevRunResults.length ? withDomainInAi - prevRunResults.filter(r => r.domainInAiSources).length : undefined} />
-              </div>
-              {hasCheckedAi && (
-                <div className="grid grid-cols-3 gap-4">
-                  <StatCard icon={<Sparkles size={18} className="text-white" />} label="Dominio in Gemini" value={`${withDomainInGemini}/${total}`} sub={`${total ? Math.round(withDomainInGemini / total * 100) : 0}% delle keyword`} gradient="bg-gradient-to-br from-sky-500 to-sky-700" />
-                  <StatCard icon={<Globe size={18} className="text-white" />} label="Dominio in Perplexity" value={`${withDomainInPerplexity}/${total}`} sub={`${total ? Math.round(withDomainInPerplexity / total * 100) : 0}% delle keyword`} gradient="bg-gradient-to-br from-teal-500 to-teal-700" />
-                  <StatCard icon={<Bot size={18} className="text-white" />} label="Dominio in ChatGPT" value={`${withDomainInChatgpt}/${total}`} sub={`${total ? Math.round(withDomainInChatgpt / total * 100) : 0}% delle keyword`} gradient="bg-gradient-to-br from-emerald-500 to-emerald-700" />
+          {/* main content */}
+          <main className="flex-1 overflow-auto bg-slate-50">
+
+            {/* projects grid */}
+            {view === "projects" && (
+              <div className="max-w-5xl mx-auto px-6 py-8">
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-900">Progetti</h2>
+                    <p className="text-sm text-slate-400 mt-0.5">Traccia la visibilità AI nel tempo per ogni dominio</p>
+                  </div>
+                  <button onClick={() => setShowNewProject(true)} className={btnPrimary}>
+                    <Plus size={14} />Nuovo progetto
+                  </button>
                 </div>
-              )}
-              <ResultsTable
-                results={runResults}
-                domain={selectedProject.domain}
-                withAi={withAi}
-                runs={runs}
-                prevResults={prevRunResults}
-                onAiCheck={handleAiCheck}
-                aiCheckLoading={aiCheckLoading}
-                aiCheckProgress={aiCheckProgress}
-              />
-            </div>
-          )}
-        </main>
-      </div>
+                {projects.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-24 text-slate-400 gap-3">
+                    <FolderOpen size={36} className="opacity-20" />
+                    <p className="text-sm">Nessun progetto ancora</p>
+                    <button onClick={() => setShowNewProject(true)} className="text-indigo-600 text-sm font-medium hover:underline">Crea il primo progetto →</button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {projects.map(p => (
+                      <div key={p.id}
+                        className="bg-white rounded-xl border border-slate-200 p-5 hover:border-indigo-300 hover:shadow-sm transition-all cursor-pointer group"
+                        onClick={() => selectProject(p)}>
+                        <div className="flex items-start justify-between">
+                          <div className="min-w-0">
+                            <h3 className="font-semibold text-slate-900 truncate">{p.name}</h3>
+                            <p className="text-sm text-slate-400 mt-0.5 truncate">{p.domain}</p>
+                          </div>
+                          <button onClick={e => { e.stopPropagation(); deleteProject(p.id); }}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-300 hover:text-red-400 p-1 rounded shrink-0">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                        <div className="mt-4 pt-3 border-t border-slate-100 flex items-center gap-3 text-xs text-slate-400">
+                          <span>{JSON.parse(p.keywords).length} kw</span>
+                          <span>·</span>
+                          <span>{LOCATION_OPTIONS.find(l => l.gl === p.location)?.label || p.location}</span>
+                          <span>·</span>
+                          <span>{new Date(p.created_at).toLocaleDateString("it-IT")}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* project home (no run selected) */}
+            {view === "project" && selectedProject && (
+              <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-3">
+                <Search size={36} className="opacity-15" />
+                <p className="text-sm font-medium text-slate-500">Pronto per l&apos;analisi</p>
+                <p className="text-xs text-slate-400">Clicca &quot;Nuova analisi&quot; nella sidebar</p>
+                {runs.length > 0 && <p className="text-xs text-slate-400">o seleziona un&apos;analisi precedente</p>}
+              </div>
+            )}
+
+            {/* run results view */}
+            {view === "run" && runResults.length > 0 && selectedProject && (
+              <div className="p-6 space-y-5">
+                {/* top metric bar */}
+                <div className="bg-white rounded-xl border border-slate-200 px-6 py-4 flex items-center gap-6 flex-wrap">
+                  <Metric label="Keywords" value={total} />
+                  <div className="h-8 w-px bg-slate-100 shrink-0" />
+                  <Metric label="AI Overview" value={withAi}
+                    sub={`${total ? Math.round(withAi / total * 100) : 0}%`}
+                    accent="text-violet-600" />
+                  <Metric label="In organico" value={withDomain}
+                    sub={`${total ? Math.round(withDomain / total * 100) : 0}% top 10`}
+                    accent="text-indigo-600" />
+                  <Metric label="Citato in AI" value={withDomainInAi}
+                    sub="come fonte"
+                    accent="text-amber-600" />
+                  {prevRunResults.length > 0 && (
+                    <>
+                      <div className="h-8 w-px bg-slate-100 shrink-0" />
+                      <div className="flex gap-4">
+                        {[
+                          { label: "Δ AI Overview", delta: withAi - prevRunResults.filter(r => r.hasAiOverview).length },
+                          { label: "Δ Organico",    delta: withDomain - prevRunResults.filter(r => r.domainInOrganic).length },
+                          { label: "Δ Citato AI",   delta: withDomainInAi - prevRunResults.filter(r => r.domainInAiSources).length },
+                        ].map((d, i) => (
+                          <div key={i}>
+                            <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">{d.label}</p>
+                            <p className={`text-sm font-bold mt-1 ${d.delta > 0 ? "text-emerald-600" : d.delta < 0 ? "text-red-500" : "text-slate-400"}`}>
+                              {d.delta > 0 ? `+${d.delta}` : d.delta === 0 ? "=" : d.delta}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <ResultsTable
+                  results={runResults}
+                  domain={selectedProject.domain}
+                  withAi={withAi}
+                  runs={runs}
+                  prevResults={prevRunResults}
+                  onAiCheck={handleAiCheck}
+                  aiCheckLoading={aiCheckLoading}
+                  aiCheckProgress={aiCheckProgress}
+                />
+              </div>
+            )}
+          </main>
+        </div>
+      )}
 
       {showNewProject && (
-        <NewProjectModal
-          onClose={() => setShowNewProject(false)}
-          onSave={p => {
-            setProjects(prev => [p, ...prev]);
-            setShowNewProject(false);
-            selectProject(p);
-          }}
-        />
+        <NewProjectModal onClose={() => setShowNewProject(false)}
+          onSave={p => { setProjects(prev => [p, ...prev]); setShowNewProject(false); selectProject(p); }} />
       )}
     </div>
   );
